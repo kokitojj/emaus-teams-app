@@ -1,0 +1,11 @@
+// prisma/tsconfig.json
+{
+  "compilerOptions": {
+    "target": "es2020",
+    "module": "commonjs", // Esto es crucial para que ts-node funcione
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  }
+}

@@ -1,0 +1,39 @@
+
+
+services:
+  # Servicio de la aplicación Next.js
+  emaus-teams-app:
+    container_name: emaus-teams-app
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    # Esta línea asegura que la base de datos esté lista antes que la app
+    depends_on:
+      - db
+
+  # === Servicio de la base de datos PostgreSQL ===
+  db:
+    container_name: emaus-teams-db
+    # Usa la imagen oficial de PostgreSQL
+    image: postgres:14-alpine
+    # Define las variables de entorno para la configuración de la base de datos
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: emaus_teams_db
+    # Expone el puerto por defecto de PostgreSQL, para poder acceder desde fuera si lo necesitas
+    ports:
+      - "5432:5432"
+    # Mantiene los datos persistentes en un volumen de Docker
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+# Define el volumen para que Docker gestione el almacenamiento de los datos de la DB
+volumes:
+  postgres_data:

@@ -1,0 +1,20 @@
+# Usa una imagen base oficial de Node.js, ligera y optimizada
+FROM node:20-alpine
+
+# Establece el directorio de trabajo dentro del contenedor
+WORKDIR /app
+
+# Copia los archivos de configuración para instalar las dependencias
+COPY package*.json ./
+
+# Copia todo el código fuente de la aplicación
+COPY . .
+
+# Instala todas las dependencias
+RUN npm install
+RUN npx prisma generate
+# Expone el puerto por defecto de Next.js
+EXPOSE 3000
+
+# Comando para ejecutar la aplicación en modo desarrollo
+CMD ["npm", "run", "dev"]
