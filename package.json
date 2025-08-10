@@ -1,14 +1,11 @@
 {
-  "name": "emaus-teams-app",
-  "version": "0.1.0",
-  "private": true,
   "scripts": {
     "dev": "next dev --port 3003",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "prisma:generate": "prisma generate",
-    "prisma:seed": "ts-node --project prisma/tsconfig.json prisma/seed.ts"
+    "prisma:seed": "node prisma/seed.js"
   },
   "prisma": {
     "seed": "npm run prisma:seed"
@@ -20,7 +17,9 @@
     "next": "^15.4.6",
     "next-auth": "^4.24.11",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "prisma": "^6.13.0",
+    "ts-node": "^10.9.2"              
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
@@ -33,9 +32,8 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "15.4.6",
-    "prisma": "^6.13.0",
     "tailwindcss": "^4",
-    "ts-node": "^10.9.2",
+    "ts-node": "^10.9.2",             
     "typescript": "^5.9.2"
   }
 }
