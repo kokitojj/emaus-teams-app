@@ -29,8 +29,8 @@ COPY --from=builder /app/.next ./.next
 # Copia los archivos de la build que se necesitan en producción
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/public ./public
-# Corrección: copiamos el archivo de configuración compilado
-COPY --from=builder /app/.next/next.config.mjs ./next.config.mjs
+# Corrección: copiamos el archivo de configuración .ts
+COPY --from=builder /app/next.config.ts ./next.config.ts
 
 # Instala solo las dependencias de producción
 RUN npm install --omit=dev
