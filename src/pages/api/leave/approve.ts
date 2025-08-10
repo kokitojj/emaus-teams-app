@@ -1,7 +1,7 @@
 // src/pages/api/leave/approve.ts
 
 import { NextApiRequest, NextApiResponse } from 'next';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { authenticateAndAuthorize } from '../../../utils/auth';
 
 const prisma = new PrismaClient();
@@ -54,7 +54,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.status(200).json(updatedRequest);
   } catch (error) {
     console.error('Error al actualizar solicitud:', error);
-    if (error.code === 'P2025') {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
       return res.status(404).json({ message: 'Solicitud no encontrada.' });
     }
     res.status(500).json({ message: 'Error interno del servidor.' });
