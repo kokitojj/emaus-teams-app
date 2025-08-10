@@ -17,7 +17,7 @@ export const authOptions = {
         username: { label: "Username", type: "text" },
         password: { label: "Password", type: "password" },
       },
-      async authorize(credentials, req) {
+      async authorize(credentials) {
         if (!credentials) {
           return null;
         }
@@ -41,21 +41,19 @@ export const authOptions = {
     strategy: "jwt",
   },
   callbacks: {
-    // Añadimos el nombre de usuario al token JWT
     async jwt({ token, user }) {
       if (user) {
         token.role = user.role;
         token.id = user.id;
-        token.username = user.username; // <--- Línea añadida
+        token.username = user.username;
       }
       return token;
     },
-    // Añadimos el nombre de usuario a la sesión
     async session({ session, token }) {
       if (token) {
         session.user.role = token.role as string;
         session.user.id = token.id as string;
-        session.user.username = token.username as string; // <--- Línea añadida
+        session.user.username = token.username as string;
       }
       return session;
     },

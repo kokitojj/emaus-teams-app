@@ -50,20 +50,35 @@ export interface LeaveRequest {
   supervisorId: string | null; // ID del supervisor que aprueba o rechaza (o null si está pendiente).
 }
 
-// Extender el módulo next-auth para incluir propiedades personalizadas en la sesión
+// Extender el módulo next-auth para incluir propiedades personalizadas
 declare module "next-auth" {
+  /**
+   * The shape of the user object returned in the OAuth providers' `profile` callback,
+   * available here as `user`.
+   */
+  interface User {
+    id: string;
+    username: string;
+    role: string;
+  }
+
+  /**
+   * Returned by `useSession`, `getSession` and received as a prop on the `SessionProvider` React Context
+   */
   interface Session {
     user: {
-      id: string; // Añadir la propiedad 'id' al usuario de la sesión
-      role: 'admin' | 'supervisor' | 'empleado'; // Añadir la propiedad 'role' al usuario de la sesión
+      id: string;
+      username: string;
+      role: string;
     } & DefaultSession["user"];
   }
 }
 
-// Extender el módulo next-auth/jwt para incluir propiedades personalizadas en el JWT
 declare module "next-auth/jwt" {
+  /** Returned by the `jwt` callback and `getToken`, when using JWT sessions */
   interface JWT {
-    id: string; // Añadir la propiedad 'id' al JWT
-    role: 'admin' | 'supervisor' | 'empleado'; // Añadir la propiedad 'role' al JWT
+    id: string;
+    username: string;
+    role: string;
   }
 }

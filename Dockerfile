@@ -35,7 +35,7 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/next.config.js ./
 
 # Expone el puerto por defecto
-EXPOSE 3000
+EXPOSE 3003
 
 # El comando para iniciar el servidor de producción
 CMD ["npm", "run", "start"]

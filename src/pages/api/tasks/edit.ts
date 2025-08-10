@@ -1,8 +1,8 @@
 // src/pages/api/tasks/edit.ts
 
 import { NextApiRequest, NextApiResponse } from 'next';
-import { PrismaClient } from '@prisma/client';
-import { authenticateAndAuthorize } from '../../../utils/auth';
+import { PrismaClient, Prisma } from '@prisma/client';
+import { authenticateAndAuthorize } from '@/utils/auth';
 
 const prisma = new PrismaClient();
 
@@ -37,12 +37,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
     res.status(200).json(updatedTask);
-  } catch (error: any) {
+  } catch (error) {
     console.error('Error al editar tarea:', error);
-    if (error.code === 'P2025') {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
       return res.status(404).json({ message: 'Tarea no encontrada.' });
     }
-    res.status(500).json({ message: 'Error interno del servidor.' });
+    return res.status(500).json({ message: 'Error interno del servidor.' });
   } finally {
     await prisma.$disconnect();
   }

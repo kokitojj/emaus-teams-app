@@ -1,5 +1,4 @@
 // src/pages/leave/index.tsx
-
 import Head from 'next/head';
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
@@ -17,8 +16,8 @@ export default function LeaveRequestsPage() {
       if (!res.ok) throw new Error('Error al obtener las solicitudes.');
       const requestsData: LeaveRequest[] = await res.json();
       setRequests(requestsData);
-    } catch (err: any) {
-      setError(err.message || 'Ocurrió un error inesperado.');
+    } catch (error) { // Corrección: quitamos el ': any'
+      setError('Ocurrió un error inesperado al obtener solicitudes.');
     } finally {
       setIsLoading(false);
     }
@@ -45,7 +44,7 @@ export default function LeaveRequestsPage() {
       });
 
       if (res.ok) {
-        await fetchRequests(); // Actualizamos la lista
+        await fetchRequests();
       } else {
         const errorData = await res.json();
         alert(`Error: ${errorData.message}`);
@@ -92,10 +91,8 @@ export default function LeaveRequestsPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{req.worker.username}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 capitalize">{req.type}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(req.startDate).toDateString()} - {new Date(req.endDate).toDateString()}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${req.status === 'aprobado' ? 'bg-green-100 text-green-800' : req.status === 'rechazado' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                        {req.status}
-                      </span>
+                    <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${req.status === 'aprobado' ? 'text-green-600' : req.status === 'rechazado' ? 'text-red-600' : 'text-yellow-600'}`}>
+                      {req.status}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       {req.status === 'pendiente' && (

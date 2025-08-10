@@ -1,5 +1,4 @@
 // src/pages/leave/my-requests.tsx
-
 import Head from 'next/head';
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
@@ -24,8 +23,8 @@ export default function MyRequestsPage() {
         if (!res.ok) throw new Error('Error al obtener las solicitudes.');
         const requestsData: LeaveRequest[] = await res.json();
         setRequests(requestsData);
-      } catch (err: any) {
-        setError(err.message || 'Ocurrió un error inesperado.');
+      } catch (error) { // Corrección: quitamos el ': any'
+        setError('Ocurrió un error inesperado al obtener solicitudes.');
       } finally {
         setIsLoading(false);
       }
@@ -33,8 +32,8 @@ export default function MyRequestsPage() {
     fetchRequests();
   }, [status]);
 
+  if (status === 'loading') return <p>Cargando...</p>;
   if (status === 'unauthenticated') return <p className="p-8 text-center text-xl text-red-500">Acceso denegado.</p>;
-  if (isLoading) return <p className="p-8 text-center">Cargando solicitudes...</p>;
   
   return (
     <>

@@ -1,8 +1,8 @@
 // src/pages/api/taskTypes/add.ts
 
 import { NextApiRequest, NextApiResponse } from 'next';
-import { PrismaClient } from '@prisma/client';
-import { authenticateAndAuthorize } from '../../../utils/auth';
+import { PrismaClient, Prisma } from '@prisma/client';
+import { authenticateAndAuthorize } from '@/utils/auth';
 
 const prisma = new PrismaClient();
 
@@ -28,9 +28,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
     res.status(201).json(newTaskType);
-  } catch (error: any) {
+  } catch (error) {
     console.error('Error al añadir tipo de tarea:', error);
-    if (error.code === 'P2002') {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       return res.status(409).json({ message: 'Ya existe un tipo de tarea con este nombre.' });
     }
     res.status(500).json({ message: 'Error interno del servidor.' });

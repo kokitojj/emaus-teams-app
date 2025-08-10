@@ -1,13 +1,12 @@
 // src/pages/api/taskTypes/delete.ts
 
 import { NextApiRequest, NextApiResponse } from 'next';
-import { PrismaClient } from '@prisma/client';
-import { authenticateAndAuthorize } from '../../../utils/auth';
+import { PrismaClient, Prisma } from '@prisma/client';
+import { authenticateAndAuthorize } from '@/utils/auth';
 
 const prisma = new PrismaClient();
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  // Solo administradores y supervisores pueden eliminar tipos de tareas
   const session = await authenticateAndAuthorize(req, res, ['admin', 'supervisor']);
   if (!session) return;
 
@@ -27,12 +26,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
     res.status(200).json({ message: `Tipo de tarea con ID ${deletedTaskType.id} eliminado.` });
-  } catch (error: any) {
+  } catch (error) {
     console.error('Error al eliminar tipo de tarea:', error);
-    if (error.code === 'P2025') {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
       return res.status(404).json({ message: 'Tipo de tarea no encontrado.' });
     }
-    res.status(500).json({ message: 'Error interno del servidor.' });
+    return res.status(500).json({ message: 'Error interno del servidor.' });
   } finally {
     await prisma.$disconnect();
   }

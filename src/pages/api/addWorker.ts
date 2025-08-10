@@ -1,8 +1,8 @@
 // src/pages/api/addWorker.ts
 
 import { NextApiRequest, NextApiResponse } from 'next';
-import { PrismaClient } from '@prisma/client';
-import { authenticateAndAuthorize } from '../../utils/auth';
+import { PrismaClient, Prisma } from '@prisma/client';
+import { authenticateAndAuthorize } from '@/utils/auth';
 import bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
@@ -13,13 +13,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!session) return;
 
   if (req.method !== 'POST') {
-    return res.status(405).json({ message: 'Method not allowed. Only POST is accepted.' });
+    return res.status(405).json({ message: 'Método no permitido. Solo se acepta POST.' });
   }
 
   const { username, password, email, role, phoneNumber } = req.body;
 
   if (!username || !password) {
-    return res.status(400).json({ message: 'Username and password are required.' });
+    return res.status(400).json({ message: 'Nombre de usuario y contraseña son obligatorios.' });
   }
 
   try {
@@ -37,14 +37,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const { password: _, ...workerWithoutPassword } = newWorker;
     res.status(201).json(workerWithoutPassword);
-  } catch (error: any) {
-    console.error('Error creating worker:', error);
-
-    if (error.code === 'P2002') {
-      return res.status(409).json({ message: 'Username or email already exists.' });
+  } catch (error) {
+    console.error('Error al crear trabajador:', error);
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return res.status(409).json({ message: 'El nombre de usuario o el email ya están registrados.' });
     }
-
-    return res.status(500).json({ message: 'Internal Server Error.' });
+    return res.status(500).json({ message: 'Error interno del servidor.' });
   } finally {
     await prisma.$disconnect();
   }
