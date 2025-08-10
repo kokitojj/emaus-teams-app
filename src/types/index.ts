@@ -9,6 +9,7 @@ export interface Worker {
   id: string; // Identificador único del trabajador.
   username: string; // Nombre de usuario del trabajador.
   email: string; // Correo electrónico del trabajador, usado para login y notificaciones.
+  phoneNumber: string | null; // Add this line
   role: 'supervisor' | 'empleado' | 'admin'; // Rol del trabajador, con un tipo literal para ser específico.
   status: 'activo' | 'vacaciones' | 'permiso'; // Estado actual del trabajador.
 }
