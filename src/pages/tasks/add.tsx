@@ -44,7 +44,8 @@ export default function AddTaskPage() {
           setSelectedTaskTypeId(taskTypesData[0].id);
         }
 
-      } catch (err) {
+      } catch (e) {
+        console.error('Error al cargar datos para el formulario.', e);
         setMessage('Error al cargar datos para el formulario.');
       } finally {
         setIsLoading(false);
@@ -105,7 +106,8 @@ export default function AddTaskPage() {
         const errorData = await res.json();
         setMessage(errorData.message || 'Ocurrió un error inesperado.');
       }
-    } catch (error) {
+    } catch (e) {
+      console.error('No se pudo conectar con el servidor.', e);
       setMessage('No se pudo conectar con el servidor.');
     }
   };

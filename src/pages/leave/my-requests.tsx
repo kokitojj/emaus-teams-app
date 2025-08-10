@@ -6,15 +6,11 @@ import { useSession } from 'next-auth/react';
 import { LeaveRequest } from '../../types';
 
 export default function MyRequestsPage() {
-  const { data: session, status } = useSession();
+  const { status } = useSession();
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (status === 'loading') return;
-    if (status === 'unauthenticated') {
-      setIsLoading(false);
+    if (status === 'loading' || status === 'unauthenticated') {
       return;
     }
     const fetchRequests = async () => {
@@ -23,10 +19,8 @@ export default function MyRequestsPage() {
         if (!res.ok) throw new Error('Error al obtener las solicitudes.');
         const requestsData: LeaveRequest[] = await res.json();
         setRequests(requestsData);
-      } catch (error) {
-        setError('Ocurrió un error inesperado al obtener solicitudes.');
-      } finally {
-        setIsLoading(false);
+      } catch (e) {
+        console.error('Ocurrió un error inesperado al obtener solicitudes.', e);
       }
     };
     fetchRequests();

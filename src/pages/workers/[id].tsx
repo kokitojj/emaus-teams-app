@@ -29,14 +29,15 @@ export default function EditWorkerPage() {
         if (!res.ok) throw new Error('Error al obtener los datos del usuario.');
         const workerData: Worker = await res.json();
         setWorker(workerData);
-      } catch (err: any) {
-        setMessage(err.message || 'Ocurrió un error inesperado.');
+      } catch (e) {
+        console.error('Ocurrió un error inesperado al obtener los datos del usuario.', e);
+        setMessage('Ocurrió un error inesperado al obtener los datos del usuario.');
       } finally {
         setIsLoading(false);
       }
     };
     fetchWorker();
-  }, [id, status]);
+  }, [id, status, session]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -68,7 +69,8 @@ export default function EditWorkerPage() {
         const errorData = await res.json();
         setMessage(`Error: ${errorData.message}`);
       }
-    } catch (err) {
+    } catch (e) {
+      console.error('No se pudo conectar con el servidor.', e);
       setMessage('No se pudo conectar con el servidor.');
     }
   };

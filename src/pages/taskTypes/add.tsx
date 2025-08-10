@@ -36,7 +36,8 @@ export default function AddTaskTypePage() {
         const errorData = await res.json();
         setMessage(errorData.message || 'Ocurrió un error inesperado.');
       }
-    } catch (error) {
+    } catch (e) {
+      console.error('No se pudo conectar con el servidor.', e);
       setMessage('No se pudo conectar con el servidor.');
     }
   };

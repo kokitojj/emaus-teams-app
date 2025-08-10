@@ -1,7 +1,6 @@
 // src/types/index.ts
 
-import { Session, DefaultSession } from "next-auth";
-import { JWT, DefaultJWT } from "next-auth/jwt";
+import { DefaultSession } from "next-auth";
 
 /**
  * Define la estructura de un Trabajador en la aplicación.

@@ -10,7 +10,6 @@ export default function TaskTypesPage() {
   const { data: session, status } = useSession();
   const [taskTypes, setTaskTypes] = useState<TaskType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   const fetchTaskTypes = async () => {
     try {
@@ -20,8 +19,8 @@ export default function TaskTypesPage() {
       }
       const taskTypesData: TaskType[] = await res.json();
       setTaskTypes(taskTypesData);
-    } catch (error) {
-      setError('Ocurrió un error inesperado al obtener los tipos de tareas.');
+    } catch (e) {
+      console.error('Ocurrió un error inesperado al obtener los tipos de tareas.', e);
     } finally {
       setIsLoading(false);
     }
@@ -53,7 +52,8 @@ export default function TaskTypesPage() {
         const errorData = await res.json();
         alert(`Error al eliminar: ${errorData.message}`);
       }
-    } catch (error) {
+    } catch (e) {
+      console.error('No se pudo conectar con el servidor para eliminar el tipo de tarea.', e);
       alert('No se pudo conectar con el servidor para eliminar el tipo de tarea.');
     }
   };
@@ -106,8 +106,8 @@ export default function TaskTypesPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       {isAdminOrSupervisor && (
                         <>
-                          <Link href={`/taskTypes/${taskType.id}`}>
-                            <a className="text-indigo-600 hover:text-indigo-900 mr-4">Editar</a>
+                          <Link href={`/taskTypes/${taskType.id}`} className="text-indigo-600 hover:text-indigo-900 mr-4">
+                            Editar
                           </Link>
                           <button 
                             onClick={() => handleDelete(taskType.id)} 

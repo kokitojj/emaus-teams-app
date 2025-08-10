@@ -7,7 +7,7 @@ import { useSession } from 'next-auth/react';
 
 export default function SubmitLeaveRequestPage() {
   const router = useRouter();
-  const { data: session, status } = useSession();
+  const { status } = useSession();
   const [type, setType] = useState('vacaciones');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -39,7 +39,8 @@ export default function SubmitLeaveRequestPage() {
         const errorData = await res.json();
         setMessage(`Error: ${errorData.message}`);
       }
-    } catch (error) {
+    } catch (e) {
+      console.error('No se pudo conectar con el servidor.', e);
       setMessage('No se pudo conectar con el servidor.');
     }
   };

@@ -6,10 +6,9 @@ import { useSession } from 'next-auth/react';
 import { Task } from '../../types';
 
 export default function MyTasksPage() {
-  const { data: session, status } = useSession();
+  const { status } = useSession();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   const fetchTasks = async () => {
     try {
@@ -19,8 +18,8 @@ export default function MyTasksPage() {
       }
       const tasksData: Task[] = await res.json();
       setTasks(tasksData);
-    } catch (err: any) {
-      setError(err.message || 'Ocurrió un error inesperado.');
+    } catch (e) {
+      console.error('Ocurrió un error inesperado al obtener las tareas.', e);
     } finally {
       setIsLoading(false);
     }
@@ -49,7 +48,8 @@ export default function MyTasksPage() {
         const errorData = await res.json();
         alert(`Error al actualizar: ${errorData.message}`);
       }
-    } catch (error) {
+    } catch (e) {
+      console.error('No se pudo conectar con el servidor para actualizar la tarea.', e);
       alert('No se pudo conectar con el servidor para actualizar la tarea.');
     }
   };

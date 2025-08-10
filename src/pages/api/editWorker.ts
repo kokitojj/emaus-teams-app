@@ -30,6 +30,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const updatedWorker = await prisma.worker.update({
       where: { id: id as string },
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        phoneNumber: true,
+        role: true,
+        status: true,
+      },
       data: {
         username: username as string,
         email: email as string,
@@ -40,8 +48,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       },
     });
 
-    const { password: _, ...workerWithoutPassword } = updatedWorker;
-    res.status(200).json(workerWithoutPassword);
+    res.status(200).json(updatedWorker);
   } catch (error) {
     console.error('Error al actualizar trabajador:', error);
 

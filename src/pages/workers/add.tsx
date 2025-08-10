@@ -2,11 +2,9 @@
 
 import Head from 'next/head';
 import { useState } from 'react';
-import { useRouter } from 'next/router';
 import { useSession } from 'next-auth/react';
 
 export default function AddWorkerPage() {
-  const router = useRouter();
   const { data: session, status } = useSession();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -39,7 +37,8 @@ export default function AddWorkerPage() {
         const errorData = await res.json();
         setMessage(errorData.message || 'Ocurrió un error inesperado.');
       }
-    } catch (error) {
+    } catch (e) {
+      console.error('No se pudo conectar con el servidor.', e);
       setMessage('No se pudo conectar con el servidor.');
     }
   };

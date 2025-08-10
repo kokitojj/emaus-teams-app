@@ -10,13 +10,9 @@ export default function Home() {
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (status === 'loading') return;
-    if (status === 'unauthenticated') {
-      setIsLoading(false);
+    if (status === 'loading' || status === 'unauthenticated') {
       return;
     }
 
@@ -36,10 +32,8 @@ export default function Home() {
         if (Array.isArray(tasksData)) setTasks(tasksData);
         if (Array.isArray(leaveData)) setLeaveRequests(leaveData);
 
-      } catch (error) {
-        setError('Ocurrió un error inesperado al obtener datos.');
-      } finally {
-        setIsLoading(false);
+      } catch (e) {
+        console.error('Ocurrió un error inesperado al obtener datos.', e);
       }
     };
     fetchData();
@@ -92,16 +86,16 @@ export default function Home() {
                 <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-yellow-500">
                   <h2 className="text-lg font-semibold text-gray-600">Solicitudes Pendientes</h2>
                   <p className="text-4xl font-bold text-yellow-500 mt-2">{pendingRequestsCount}</p>
-                  <Link href="/leave">
-                    <a className="text-sm font-medium text-yellow-600 hover:text-yellow-800 mt-2 inline-block">Gestionar Solicitudes &rarr;</a>
+                  <Link href="/leave" className="text-sm font-medium text-yellow-600 hover:text-yellow-800 mt-2 inline-block">
+                    Gestionar Solicitudes &rarr;
                   </Link>
                 </div>
               )}
               <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-blue-500">
                 <h2 className="text-lg font-semibold text-gray-600">Tareas Pendientes</h2>
                 <p className="text-4xl font-bold text-blue-500 mt-2">{pendingTasksCount}</p>
-                <Link href={tasksLink}>
-                  <a className="text-sm font-medium text-blue-600 hover:text-blue-800 mt-2 inline-block">Ver Tareas &rarr;</a>
+                <Link href={tasksLink} className="text-sm font-medium text-blue-600 hover:text-blue-800 mt-2 inline-block">
+                  Ver Tareas &rarr;
                 </Link>
               </div>
             </div>

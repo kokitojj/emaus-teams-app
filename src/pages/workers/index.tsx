@@ -10,7 +10,6 @@ export default function WorkersPage() {
   const { data: session, status } = useSession();
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   const fetchWorkers = async () => {
     try {
@@ -20,8 +19,8 @@ export default function WorkersPage() {
       }
       const workersData: Worker[] = await res.json();
       setWorkers(workersData);
-    } catch (err: any) {
-      setError(err.message || 'Ocurrió un error inesperado.');
+    } catch (e) {
+      console.error('Ocurrió un error inesperado al obtener la lista de trabajadores.', e);
     } finally {
       setIsLoading(false);
     }
@@ -53,7 +52,8 @@ export default function WorkersPage() {
         const errorData = await res.json();
         alert(`Error al eliminar: ${errorData.message}`);
       }
-    } catch (error) {
+    } catch (e) {
+      console.error('No se pudo conectar con el servidor para eliminar el trabajador.', e);
       alert('No se pudo conectar con el servidor para eliminar el trabajador.');
     }
   };

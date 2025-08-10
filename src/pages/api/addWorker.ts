@@ -26,6 +26,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const hashedPassword = await bcrypt.hash(password, saltRounds);
 
     const newWorker = await prisma.worker.create({
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        phoneNumber: true,
+        role: true,
+        status: true,
+      },
       data: {
         username,
         email: email || null,
@@ -35,8 +43,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       },
     });
 
-    const { password: _, ...workerWithoutPassword } = newWorker;
-    res.status(201).json(workerWithoutPassword);
+    res.status(201).json(newWorker);
   } catch (error) {
     console.error('Error al crear trabajador:', error);
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {

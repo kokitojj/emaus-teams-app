@@ -11,8 +11,8 @@ export default function Nav() {
   return (
     <nav className="bg-gray-800 p-4 text-white shadow-md">
       <div className="container mx-auto flex justify-between items-center">
-        <Link href="/">
-          <p className="text-xl font-bold hover:text-gray-300 transition-colors cursor-pointer">Emaus Teams App</p>
+        <Link href="/" className="text-xl font-bold hover:text-gray-300 transition-colors cursor-pointer">
+          Emaus Teams App
         </Link>
         <div className="flex items-center space-x-4">
           {loading ? (
@@ -29,27 +29,27 @@ export default function Nav() {
               {/* Enlaces condicionales por rol */}
               {role === 'empleado' && (
                 <>
-                  <Link href="/tasks/my-tasks">
-                    <p className="hover:text-gray-300 transition-colors cursor-pointer">Mis Tareas</p>
+                  <Link href="/tasks/my-tasks" className="hover:text-gray-300 transition-colors cursor-pointer">
+                    Mis Tareas
                   </Link>
-                  <Link href="/leave/my-requests">
-                    <p className="hover:text-gray-300 transition-colors cursor-pointer">Mis Solicitudes</p>
+                  <Link href="/leave/my-requests" className="hover:text-gray-300 transition-colors cursor-pointer">
+                    Mis Solicitudes
                   </Link>
                 </>
               )}
               {(role === 'supervisor' || role === 'admin') && (
                 <>
-                  <Link href="/workers">
-                    <p className="hover:text-gray-300 transition-colors cursor-pointer">Trabajadores</p>
+                  <Link href="/workers" className="hover:text-gray-300 transition-colors cursor-pointer">
+                    Trabajadores
                   </Link>
-                  <Link href="/tasks">
-                    <p className="hover:text-gray-300 transition-colors cursor-pointer">Tareas</p>
+                  <Link href="/tasks" className="hover:text-gray-300 transition-colors cursor-pointer">
+                    Tareas
                   </Link>
-                  <Link href="/taskTypes">
-                    <p className="hover:text-gray-300 transition-colors cursor-pointer">Tipos de Tareas</p>
+                  <Link href="/taskTypes" className="hover:text-gray-300 transition-colors cursor-pointer">
+                    Tipos de Tareas
                   </Link>
-                  <Link href="/leave">
-                    <p className="hover:text-gray-300 transition-colors cursor-pointer">Gestionar Solicitudes</p>
+                  <Link href="/leave" className="hover:text-gray-300 transition-colors cursor-pointer">
+                    Gestionar Solicitudes
                   </Link>
                 </>
               )}
@@ -63,13 +63,11 @@ export default function Nav() {
             </>
           ) : (
             <>
-              <Link href="/login">
-                <p className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded-lg transition-colors cursor-pointer">
-                  Iniciar Sesión
-                </p>
+              <Link href="/login" className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded-lg transition-colors cursor-pointer">
+                Iniciar Sesión
               </Link>
-              <Link href="/register">
-                <p className="hover:text-gray-300 transition-colors cursor-pointer">Registrarse</p>
+              <Link href="/register" className="hover:text-gray-300 transition-colors cursor-pointer">
+                Registrarse
               </Link>
             </>
           )}

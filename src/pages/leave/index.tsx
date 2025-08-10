@@ -8,7 +8,6 @@ export default function LeaveRequestsPage() {
   const { data: session, status } = useSession();
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   const fetchRequests = async () => {
     try {
@@ -16,8 +15,8 @@ export default function LeaveRequestsPage() {
       if (!res.ok) throw new Error('Error al obtener las solicitudes.');
       const requestsData: LeaveRequest[] = await res.json();
       setRequests(requestsData);
-    } catch (error) {
-      setError('Ocurrió un error inesperado al obtener solicitudes.');
+    } catch (e) {
+      console.error('Ocurrió un error inesperado al obtener solicitudes.', e);
     } finally {
       setIsLoading(false);
     }
@@ -49,7 +48,8 @@ export default function LeaveRequestsPage() {
         const errorData = await res.json();
         alert(`Error: ${errorData.message}`);
       }
-    } catch (error) {
+    } catch (e) {
+      console.error('No se pudo conectar con el servidor.', e);
       alert('No se pudo conectar con el servidor.');
     }
   };
