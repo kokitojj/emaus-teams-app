@@ -7,7 +7,6 @@ import { authenticateAndAuthorize } from '../../../utils/auth';
 const prisma = new PrismaClient();
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  // Solo administradores y supervisores pueden editar tareas
   const session = await authenticateAndAuthorize(req, res, ['admin', 'supervisor']);
   if (!session) return;
 
@@ -15,10 +14,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ message: 'Método no permitido. Solo se acepta PUT.' });
   }
 
-  const { id, name, assignedWorkerId, taskTypeId, isCompleted } = req.body;
+  const { id, name, isCompleted, startTime, endTime, observations, taskTypeId, workerIds } = req.body;
 
-  if (!id || !name || !assignedWorkerId || !taskTypeId) {
-    return res.status(400).json({ message: 'ID, nombre, trabajador y tipo de tarea son obligatorios.' });
+  if (!id || !name || !startTime || !endTime || !taskTypeId || !workerIds) {
+    return res.status(400).json({ message: 'Todos los campos son obligatorios.' });
   }
 
   try {
@@ -26,9 +25,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       where: { id: id as string },
       data: {
         name,
-        assignedWorkerId,
-        taskTypeId,
         isCompleted,
+        startTime: new Date(startTime),
+        endTime: new Date(endTime),
+        observations,
+        taskTypeId,
+        workers: {
+          set: workerIds.map((workerId: string) => ({ id: workerId })),
+        },
       },
     });
 

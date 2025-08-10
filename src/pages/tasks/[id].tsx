@@ -12,14 +12,16 @@ export default function EditTaskPage() {
   const { data: session, status } = useSession();
   
   const [task, setTask] = useState<Task | null>(null);
-  const [workers, setWorkers] = useState<Worker[]>([]);
+  const [allWorkers, setAllWorkers] = useState<Worker[]>([]);
+  const [filteredWorkers, setFilteredWorkers] = useState<Worker[]>([]);
   const [taskTypes, setTaskTypes] = useState<TaskType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
+  const [selectedWorkerIds, setSelectedWorkerIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (status === 'loading' || !id) return;
-    if (status === 'unauthenticated') {
+    if (status === 'unauthenticated' || (session?.user?.role !== 'admin' && session?.user?.role !== 'supervisor')) {
       setIsLoading(false);
       return;
     }
@@ -41,8 +43,9 @@ export default function EditTaskPage() {
         const taskTypesData: TaskType[] = await taskTypesRes.json();
 
         setTask(taskData);
-        setWorkers(workersData);
+        setAllWorkers(workersData);
         setTaskTypes(taskTypesData);
+        setSelectedWorkerIds(taskData.workers.map(w => w.id));
       } catch (err: any) {
         setMessage(err.message || 'Ocurrió un error inesperado.');
       } finally {
@@ -50,7 +53,25 @@ export default function EditTaskPage() {
       }
     };
     fetchData();
-  }, [id, status]);
+  }, [id, status, session]);
+  
+  // Nuevo: Efecto para filtrar trabajadores cuando cambia el tipo de tarea
+  useEffect(() => {
+    if (task && allWorkers.length > 0 && taskTypes.length > 0) {
+      const selectedTaskType = taskTypes.find(type => type.id === task.taskTypeId);
+      if (selectedTaskType) {
+        const qualifiedWorkerIds = selectedTaskType.qualifiedWorkers.map(w => w.id);
+        const filtered = allWorkers.filter(worker => qualifiedWorkerIds.includes(worker.id));
+        setFilteredWorkers(filtered);
+      }
+    }
+  }, [task, allWorkers, taskTypes]);
+
+  const handleWorkerToggle = (workerId: string) => {
+    setSelectedWorkerIds(prev =>
+      prev.includes(workerId) ? prev.filter(wId => wId !== workerId) : [...prev, workerId]
+    );
+  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -64,9 +85,12 @@ export default function EditTaskPage() {
         body: JSON.stringify({
           id: task.id,
           name: task.name,
-          assignedWorkerId: task.assignedWorkerId,
-          taskTypeId: task.taskTypeId,
           isCompleted: task.isCompleted,
+          startTime: task.startTime,
+          endTime: task.endTime,
+          observations: task.observations,
+          taskTypeId: task.taskTypeId,
+          workerIds: selectedWorkerIds,
         }),
       });
 
@@ -114,20 +138,20 @@ export default function EditTaskPage() {
             </div>
             
             <div className="mb-4">
-              <label htmlFor="assignedWorker" className="block text-gray-700 text-sm font-bold mb-2">Asignar a Trabajador</label>
-              <select
-                id="assignedWorker"
-                value={task.assignedWorkerId}
-                onChange={(e) => setTask(prev => prev ? { ...prev, assignedWorkerId: e.target.value } : null)}
-                className="shadow border rounded w-full py-2 px-3 text-gray-700"
-                required
-              >
-                {workers.map(worker => (
-                  <option key={worker.id} value={worker.id}>{worker.username}</option>
-                ))}
-              </select>
+              <label htmlFor="startTime" className="block text-gray-700 text-sm font-bold mb-2">Hora de Inicio</label>
+              <input type="datetime-local" id="startTime" value={new Date(task.startTime).toISOString().substring(0, 16)} onChange={(e) => setTask(prev => prev ? { ...prev, startTime: new Date(e.target.value) } : null)} className="shadow border rounded w-full py-2 px-3 text-gray-700" required />
+            </div>
+
+            <div className="mb-4">
+              <label htmlFor="endTime" className="block text-gray-700 text-sm font-bold mb-2">Hora de Fin</label>
+              <input type="datetime-local" id="endTime" value={new Date(task.endTime).toISOString().substring(0, 16)} onChange={(e) => setTask(prev => prev ? { ...prev, endTime: new Date(e.target.value) } : null)} className="shadow border rounded w-full py-2 px-3 text-gray-700" required />
             </div>
             
+            <div className="mb-4">
+              <label htmlFor="observations" className="block text-gray-700 text-sm font-bold mb-2">Observaciones</label>
+              <textarea id="observations" value={task.observations || ''} onChange={(e) => setTask(prev => prev ? { ...prev, observations: e.target.value } : null)} className="shadow border rounded w-full py-2 px-3 text-gray-700" rows={3}></textarea>
+            </div>
+
             <div className="mb-4">
               <label htmlFor="taskType" className="block text-gray-700 text-sm font-bold mb-2">Tipo de Tarea</label>
               <select
@@ -141,6 +165,28 @@ export default function EditTaskPage() {
                   <option key={type.id} value={type.id}>{type.name}</option>
                 ))}
               </select>
+            </div>
+
+            <div className="mb-6">
+              <label className="block text-gray-700 text-sm font-bold mb-2">Asignar Trabajadores</label>
+              <div className="h-40 overflow-y-auto border rounded p-2 bg-gray-50">
+                {filteredWorkers.length === 0 ? (
+                  <p>No hay trabajadores calificados para este tipo de tarea.</p>
+                ) : (
+                  filteredWorkers.map(worker => (
+                    <div key={worker.id} className="flex items-center mb-1">
+                      <input
+                        type="checkbox"
+                        id={worker.id}
+                        checked={selectedWorkerIds.includes(worker.id)}
+                        onChange={() => handleWorkerToggle(worker.id)}
+                        className="mr-2"
+                      />
+                      <label htmlFor={worker.id} className="text-gray-700">{worker.username} ({worker.role})</label>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
 
             <div className="mb-6 flex items-center">

@@ -14,18 +14,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ message: 'Método no permitido. Solo se acepta POST.' });
   }
 
-  const { name, assignedWorkerId, taskTypeId } = req.body;
+  const { name, startTime, endTime, observations, taskTypeId, workerIds } = req.body;
 
-  if (!name || !assignedWorkerId || !taskTypeId) {
-    return res.status(400).json({ message: 'Nombre, trabajador y tipo de tarea son obligatorios.' });
+  if (!name || !startTime || !endTime || !taskTypeId || !workerIds || workerIds.length === 0) {
+    return res.status(400).json({ message: 'Todos los campos son obligatorios.' });
   }
 
   try {
     const newTask = await prisma.task.create({
       data: {
         name,
-        assignedWorkerId,
+        startTime: new Date(startTime),
+        endTime: new Date(endTime),
+        observations,
         taskTypeId,
+        workers: {
+          connect: workerIds.map((id: string) => ({ id })),
+        },
       },
     });
 

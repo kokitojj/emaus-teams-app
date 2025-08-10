@@ -93,7 +93,7 @@ export default function TasksPage() {
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold text-gray-800">Tareas</h1>
           {isAdminOrSupervisor && (
-            <Link href="/tasks/add" legacyBehavior>
+            <Link href="/tasks/add">
               <button className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors">
                 Añadir Tarea
               </button>
@@ -113,6 +113,8 @@ export default function TasksPage() {
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nombre</th>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Asignada a</th>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo</th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Horario</th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Observaciones</th>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Completada</th>
                   <th scope="col" className="relative px-6 py-3">
                     <span className="sr-only">Acciones</span>
@@ -123,8 +125,14 @@ export default function TasksPage() {
                 {tasks.map((task) => (
                   <tr key={task.id} className={task.isCompleted ? 'bg-green-50' : ''}>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{task.name}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{task.assignedWorker.username}</td>
+                    <td className="px-6 py-4 text-sm text-gray-500">
+                      {task.workers.map(w => w.username).join(', ')}
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{task.taskType.name}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {new Date(task.startTime).toLocaleString()} - {new Date(task.endTime).toLocaleString()}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-500 max-w-xs overflow-hidden text-ellipsis">{task.observations || 'N/A'}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       <input
                         type="checkbox"
@@ -135,8 +143,7 @@ export default function TasksPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       {isAdminOrSupervisor && (
                         <>
-                          <Link href={`/tasks/${task.id}`} legacyBehavior>
-                            <a className="text-indigo-600 hover:text-indigo-900 mr-4">Editar</a>
+                          <Link href={`/tasks/${task.id}`} className="text-indigo-600 hover:text-indigo-900 mr-4">Editar
                           </Link>
                           <button 
                             onClick={() => handleDelete(task.id)} 

@@ -19,19 +19,16 @@ model Worker {
   role            String       @default("empleado")
   status          String       @default("activo")
   leaveRequests   LeaveRequest[]
-  // Relacionamos los trabajadores con los tipos de tareas que pueden realizar
   taskTypes       TaskType[]
-  // Relacionamos los trabajadores con las tareas que tienen asignadas
-  assignedTasks   Task[]
+  // Relación de muchos a muchos con el modelo Task
+  tasks           Task[]
 }
 
 // Nuevo: Modelo para Tipos de Tareas
 model TaskType {
   id              String       @id @default(uuid())
   name            String       @unique
-  // Relacionamos los tipos de tareas con los trabajadores que pueden realizarlas
   qualifiedWorkers Worker[]
-  // Relacionamos los tipos de tareas con las tareas creadas
   tasks           Task[]
 }
 
@@ -40,12 +37,13 @@ model Task {
   id               String       @id @default(uuid())
   name             String
   isCompleted      Boolean      @default(false)
-  // Conectamos la tarea a un trabajador asignado
-  assignedWorker   Worker       @relation(fields: [assignedWorkerId], references: [id])
-  assignedWorkerId String
-  // Conectamos la tarea a su tipo de tarea
+  observations     String?
   taskType         TaskType     @relation(fields: [taskTypeId], references: [id])
   taskTypeId       String
+  startTime        DateTime
+  endTime          DateTime
+  // Relación de muchos a muchos con el modelo Worker
+  workers          Worker[]
 }
 
 // Modelo de Solicitud de vacaciones o permiso

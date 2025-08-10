@@ -10,13 +10,18 @@ export default function AddTaskPage() {
   const router = useRouter();
   const { data: session, status } = useSession();
   const [name, setName] = useState('');
-  const [workers, setWorkers] = useState<Worker[]>([]);
+  const [startTime, setStartTime] = useState('');
+  const [endTime, setEndTime] = useState('');
+  const [observations, setObservations] = useState('');
+  const [allWorkers, setAllWorkers] = useState<Worker[]>([]); // Almacenamos todos los trabajadores
+  const [filteredWorkers, setFilteredWorkers] = useState<Worker[]>([]); // Almacenamos los trabajadores filtrados
   const [taskTypes, setTaskTypes] = useState<TaskType[]>([]);
-  const [assignedWorkerId, setAssignedWorkerId] = useState('');
-  const [taskTypeId, setTaskTypeId] = useState('');
+  const [selectedTaskTypeId, setSelectedTaskTypeId] = useState('');
+  const [selectedWorkerIds, setSelectedWorkerIds] = useState<string[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Obtener la lista de trabajadores y tipos de tareas
   useEffect(() => {
     if (status === 'loading' || status === 'unauthenticated') {
       setIsLoading(false);
@@ -32,12 +37,12 @@ export default function AddTaskPage() {
         const workersData: Worker[] = await workersRes.json();
         const taskTypesData: TaskType[] = await taskTypesRes.json();
 
-        setWorkers(workersData);
+        setAllWorkers(workersData);
         setTaskTypes(taskTypesData);
 
-        // Seleccionamos la primera opción por defecto si existen
-        if (workersData.length > 0) setAssignedWorkerId(workersData[0].id);
-        if (taskTypesData.length > 0) setTaskTypeId(taskTypesData[0].id);
+        if (taskTypesData.length > 0) {
+          setSelectedTaskTypeId(taskTypesData[0].id);
+        }
 
       } catch (err) {
         setMessage('Error al cargar datos para el formulario.');
@@ -48,15 +53,41 @@ export default function AddTaskPage() {
     fetchData();
   }, [status]);
 
+  // Nuevo: Efecto para filtrar trabajadores cuando cambia el tipo de tarea
+  useEffect(() => {
+    if (selectedTaskTypeId && allWorkers.length > 0 && taskTypes.length > 0) {
+      const selectedTaskType = taskTypes.find(type => type.id === selectedTaskTypeId);
+      if (selectedTaskType) {
+        const qualifiedWorkerIds = selectedTaskType.qualifiedWorkers.map(w => w.id);
+        const filtered = allWorkers.filter(worker => qualifiedWorkerIds.includes(worker.id));
+        setFilteredWorkers(filtered);
+        setSelectedWorkerIds([]); // Reiniciamos la selección
+      }
+    }
+  }, [selectedTaskTypeId, allWorkers, taskTypes]);
+
   if (status === 'unauthenticated' || (session?.user?.role !== 'admin' && session?.user?.role !== 'supervisor')) {
-    return <p className="p-8 text-center text-xl text-red-500">Acceso denegado.</p>;
+    return <p className="p-8 text-center text-xl text-red-500">Acceso denegado. Por favor, inicia sesión con un rol autorizado.</p>;
   }
+
+  const handleWorkerToggle = (workerId: string) => {
+    setSelectedWorkerIds(prev =>
+      prev.includes(workerId) ? prev.filter(id => id !== workerId) : [...prev, workerId]
+    );
+  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setMessage(null);
 
-    const taskData = { name, assignedWorkerId, taskTypeId };
+    const taskData = {
+      name,
+      startTime,
+      endTime,
+      observations,
+      taskTypeId: selectedTaskTypeId,
+      workerIds: selectedWorkerIds,
+    };
 
     try {
       const res = await fetch('/api/tasks/add', {
@@ -107,32 +138,48 @@ export default function AddTaskPage() {
                 required
               />
             </div>
-
+            
             <div className="mb-4">
-              <label htmlFor="assignedWorker" className="block text-gray-700 text-sm font-bold mb-2">Asignar a Trabajador</label>
-              <select
-                id="assignedWorker"
-                value={assignedWorkerId}
-                onChange={(e) => setAssignedWorkerId(e.target.value)}
-                className="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight"
+              <label htmlFor="startTime" className="block text-gray-700 text-sm font-bold mb-2">Hora de Inicio</label>
+              <input
+                type="datetime-local"
+                id="startTime"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight"
                 required
-              >
-                {isLoading ? (
-                  <option>Cargando...</option>
-                ) : (
-                  workers.map(worker => (
-                    <option key={worker.id} value={worker.id}>{worker.username}</option>
-                  ))
-                )}
-              </select>
+              />
             </div>
 
-            <div className="mb-6">
+            <div className="mb-4">
+              <label htmlFor="endTime" className="block text-gray-700 text-sm font-bold mb-2">Hora de Fin</label>
+              <input
+                type="datetime-local"
+                id="endTime"
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight"
+                required
+              />
+            </div>
+            
+            <div className="mb-4">
+              <label htmlFor="observations" className="block text-gray-700 text-sm font-bold mb-2">Observaciones</label>
+              <textarea
+                id="observations"
+                value={observations}
+                onChange={(e) => setObservations(e.target.value)}
+                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight"
+                rows={3}
+              />
+            </div>
+
+            <div className="mb-4">
               <label htmlFor="taskType" className="block text-gray-700 text-sm font-bold mb-2">Tipo de Tarea</label>
               <select
                 id="taskType"
-                value={taskTypeId}
-                onChange={(e) => setTaskTypeId(e.target.value)}
+                value={selectedTaskTypeId}
+                onChange={(e) => setSelectedTaskTypeId(e.target.value)}
                 className="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight"
                 required
               >
@@ -146,6 +193,30 @@ export default function AddTaskPage() {
               </select>
             </div>
             
+            <div className="mb-6">
+              <label className="block text-gray-700 text-sm font-bold mb-2">Asignar Trabajadores</label>
+              <div className="h-40 overflow-y-auto border rounded p-2 bg-gray-50">
+                {isLoading ? (
+                  <p>Cargando trabajadores...</p>
+                ) : filteredWorkers.length === 0 ? (
+                  <p>No hay trabajadores calificados para este tipo de tarea.</p>
+                ) : (
+                  filteredWorkers.map(worker => (
+                    <div key={worker.id} className="flex items-center mb-1">
+                      <input
+                        type="checkbox"
+                        id={worker.id}
+                        checked={selectedWorkerIds.includes(worker.id)}
+                        onChange={() => handleWorkerToggle(worker.id)}
+                        className="mr-2"
+                      />
+                      <label htmlFor={worker.id} className="text-gray-700">{worker.username} ({worker.role})</label>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
             <div className="flex items-center justify-center">
               <button
                 type="submit"

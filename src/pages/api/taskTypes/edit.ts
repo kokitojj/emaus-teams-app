@@ -2,7 +2,7 @@
 
 import { NextApiRequest, NextApiResponse } from 'next';
 import { PrismaClient } from '@prisma/client';
-import { authenticateAndAuthorize } from '../../../../utils/auth';
+import { authenticateAndAuthorize } from '../../../utils/auth';
 
 const prisma = new PrismaClient();
 

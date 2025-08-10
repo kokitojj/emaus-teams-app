@@ -21,26 +21,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     if (userRole === 'empleado') {
-      // Los trabajadores solo pueden ver sus propias tareas
       tasks = await prisma.task.findMany({
-        where: { assignedWorkerId: userId },
+        where: { workers: { some: { id: userId } } }, // Filtramos por el ID del trabajador
         include: {
-          assignedWorker: true,
+          workers: true,
           taskType: true,
         },
         orderBy: {
-          id: 'asc',
+          startTime: 'asc',
         },
       });
     } else {
-      // Admins y Supervisores ven todas las tareas
       tasks = await prisma.task.findMany({
         include: {
-          assignedWorker: true,
+          workers: true,
           taskType: true,
         },
         orderBy: {
-          id: 'asc',
+          startTime: 'asc',
         },
       });
     }
