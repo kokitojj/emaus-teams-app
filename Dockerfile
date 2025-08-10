@@ -15,6 +15,12 @@ COPY . .
 # Genera el cliente de Prisma
 RUN npx prisma generate
 
+# IMPORTANTE: Ejecuta las migraciones de Prisma en la base de datos
+RUN npx prisma migrate deploy
+
+# IMPORTANTE: Siembra la base de datos con los datos iniciales
+RUN npx prisma db seed
+
 # Genera la build de producción de Next.js
 RUN npm run build
 
