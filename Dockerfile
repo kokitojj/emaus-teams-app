@@ -14,11 +14,15 @@ RUN npm install
 # Copia todo el código fuente del proyecto al contenedor
 COPY . .
 
+
 # Genera el cliente de Prisma
 RUN npx prisma generate
 
 # Genera la build de producción de Next.js
 RUN npm run build
+
+# IMPORTANTE: Siembra la base de datos con los datos iniciales
+RUN npx prisma db seed
 
 # === Etapa 2: Creación de la imagen final de producción ===
 # Usa una imagen Node.js mínima para el servidor de ejecución
