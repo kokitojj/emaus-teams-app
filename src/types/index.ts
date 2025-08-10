@@ -7,9 +7,9 @@ import { DefaultSession } from "next-auth";
  */
 export interface Worker {
   id: string; // Identificador único del trabajador.
-  name: string; // Nombre completo del trabajador.
+  username: string; // Nombre de usuario del trabajador.
   email: string; // Correo electrónico del trabajador, usado para login y notificaciones.
-  role: 'supervisor' | 'empleado'; // Rol del trabajador, con un tipo literal para ser específico.
+  role: 'supervisor' | 'empleado' | 'admin'; // Rol del trabajador, con un tipo literal para ser específico.
   status: 'activo' | 'vacaciones' | 'permiso'; // Estado actual del trabajador.
 }
 
@@ -47,6 +47,7 @@ export interface LeaveRequest {
   reason: string; // Razón de la solicitud.
   status: 'pendiente' | 'aprobado' | 'rechazado'; // Estado de la solicitud.
   supervisorId: string | null; // ID del supervisor que aprueba o rechaza (o null si está pendiente).
+  worker: Worker;
 }
 
 // Extender el módulo next-auth para incluir propiedades personalizadas
