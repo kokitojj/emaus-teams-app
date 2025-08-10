@@ -16,10 +16,13 @@ COPY . .
 RUN npx prisma generate
 
 # IMPORTANTE: Ejecuta las migraciones de Prisma en la base de datos
-RUN npx prisma migrate deploy
+# Este comando es para producción, se asume que la DB ya está corriendo
+# Vamos a eliminarlo de aquí y lo ejecutaremos manualmente
+# RUN npx prisma migrate deploy
 
 # IMPORTANTE: Siembra la base de datos con los datos iniciales
-RUN npx prisma db seed
+# También lo eliminaremos de aquí para ejecutarlo en el contenedor activo
+# RUN npx prisma db seed
 
 # Genera la build de producción de Next.js
 RUN npm run build
@@ -35,7 +38,7 @@ COPY --from=builder /app/.next ./.next
 # Copia los archivos de la build que se necesitan en producción
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/public ./public
-COPY --from=builder /app/next.config.ts ./next.config.ts
+COPY --from=builder /app/next.config.js ./next.config.js
 
 # Instala solo las dependencias de producción
 RUN npm install --omit=dev
