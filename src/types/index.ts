@@ -26,13 +26,27 @@ export interface Shift {
 }
 
 /**
+ * Define la estructura de un Tipo de Tarea.
+ */
+export interface TaskType {
+  id: string;
+  name: string;
+  qualifiedWorkers: Worker[];
+}
+
+/**
  * Define la estructura de una Tarea.
  */
 export interface Task {
   id: string; // Identificador único de la tarea.
   name: string; // Nombre de la tarea (ej. "Revisar inventario", "Atender clientes").
-  assignedWorkerId: string; // ID del trabajador asignado a la tarea.
   isCompleted: boolean; // Estado de la tarea, si ha sido completada o no.
+  observations: string | null;
+  taskTypeId: string;
+  startTime: Date;
+  endTime: Date;
+  workers: Worker[];
+  taskType: TaskType;
 }
 
 /**
