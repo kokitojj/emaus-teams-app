@@ -20,8 +20,8 @@ export default function TaskTypesPage() {
       }
       const taskTypesData: TaskType[] = await res.json();
       setTaskTypes(taskTypesData);
-    } catch (err: any) {
-      setError(err.message || 'Ocurrió un error inesperado.');
+    } catch (error) {
+      setError('Ocurrió un error inesperado al obtener los tipos de tareas.');
     } finally {
       setIsLoading(false);
     }
@@ -48,7 +48,7 @@ export default function TaskTypesPage() {
       });
 
       if (res.ok) {
-        await fetchTaskTypes(); // Volvemos a cargar la lista para actualizar la UI
+        await fetchTaskTypes();
       } else {
         const errorData = await res.json();
         alert(`Error al eliminar: ${errorData.message}`);
@@ -106,7 +106,8 @@ export default function TaskTypesPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       {isAdminOrSupervisor && (
                         <>
-                          <Link href={`/taskTypes/${taskType.id}`} className="text-indigo-600 hover:text-indigo-900 mr-4">Editar
+                          <Link href={`/taskTypes/${taskType.id}`}>
+                            <a className="text-indigo-600 hover:text-indigo-900 mr-4">Editar</a>
                           </Link>
                           <button 
                             onClick={() => handleDelete(taskType.id)} 

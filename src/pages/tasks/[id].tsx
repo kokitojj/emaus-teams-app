@@ -46,8 +46,8 @@ export default function EditTaskPage() {
         setAllWorkers(workersData);
         setTaskTypes(taskTypesData);
         setSelectedWorkerIds(taskData.workers.map(w => w.id));
-      } catch (err: any) {
-        setMessage(err.message || 'Ocurrió un error inesperado.');
+      } catch (error) {
+        setMessage('Ocurrió un error inesperado al obtener datos.');
       } finally {
         setIsLoading(false);
       }
@@ -55,7 +55,6 @@ export default function EditTaskPage() {
     fetchData();
   }, [id, status, session]);
   
-  // Nuevo: Efecto para filtrar trabajadores cuando cambia el tipo de tarea
   useEffect(() => {
     if (task && allWorkers.length > 0 && taskTypes.length > 0) {
       const selectedTaskType = taskTypes.find(type => type.id === task.taskTypeId);
@@ -101,7 +100,7 @@ export default function EditTaskPage() {
         const errorData = await res.json();
         setMessage(`Error: ${errorData.message}`);
       }
-    } catch (err) {
+    } catch (error) {
       setMessage('No se pudo conectar con el servidor.');
     }
   };

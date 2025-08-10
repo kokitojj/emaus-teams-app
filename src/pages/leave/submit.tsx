@@ -34,7 +34,7 @@ export default function SubmitLeaveRequestPage() {
 
       if (res.ok) {
         setMessage('Solicitud enviada con éxito.');
-        router.push('/');
+        router.push('/leave/my-requests');
       } else {
         const errorData = await res.json();
         setMessage(`Error: ${errorData.message}`);
@@ -84,7 +84,7 @@ export default function SubmitLeaveRequestPage() {
               <textarea id="reason" value={reason} onChange={(e) => setReason(e.target.value)} className="shadow border rounded w-full py-2 px-3 text-gray-700" rows={3}></textarea>
             </div>
             <div className="flex items-center justify-center">
-              <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">
+              <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors">
                 Enviar Solicitud
               </button>
             </div>

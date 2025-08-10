@@ -40,8 +40,8 @@ export default function EditTaskTypePage() {
         setTaskType(taskTypeData);
         setWorkers(workersData);
         setSelectedWorkerIds(taskTypeData.qualifiedWorkers.map(w => w.id));
-      } catch (err: any) {
-        setMessage(err.message || 'Ocurrió un error inesperado.');
+      } catch (error) {
+        setMessage('Ocurrió un error inesperado al obtener datos.');
       } finally {
         setIsLoading(false);
       }
@@ -78,7 +78,7 @@ export default function EditTaskTypePage() {
         const errorData = await res.json();
         setMessage(`Error: ${errorData.message}`);
       }
-    } catch (err) {
+    } catch (error) {
       setMessage('No se pudo conectar con el servidor.');
     }
   };
