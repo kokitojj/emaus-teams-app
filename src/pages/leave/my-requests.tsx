@@ -23,7 +23,7 @@ export default function MyRequestsPage() {
         if (!res.ok) throw new Error('Error al obtener las solicitudes.');
         const requestsData: LeaveRequest[] = await res.json();
         setRequests(requestsData);
-      } catch (error) { // Corrección: quitamos el ': any'
+      } catch (error) {
         setError('Ocurrió un error inesperado al obtener solicitudes.');
       } finally {
         setIsLoading(false);

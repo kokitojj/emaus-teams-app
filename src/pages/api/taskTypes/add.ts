@@ -33,7 +33,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       return res.status(409).json({ message: 'Ya existe un tipo de tarea con este nombre.' });
     }
-    res.status(500).json({ message: 'Error interno del servidor.' });
+    return res.status(500).json({ message: 'Error interno del servidor.' });
   } finally {
     await prisma.$disconnect();
   }
