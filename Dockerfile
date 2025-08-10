@@ -1,41 +1,45 @@
 # === Etapa 1: Construcción de la aplicación ===
-# Usamos una imagen de Node.js más completa para el proceso de construcción
+# Usa una imagen de Node.js ligera para la compilación
 FROM node:20-alpine AS builder
 
+# Establece el directorio de trabajo dentro del contenedor
 WORKDIR /app
 
-# Copiamos todo el código fuente de la aplicación
-COPY . .
-
-# Copiamos los archivos de configuración para instalar dependencias
+# Copia los archivos de configuración para instalar las dependencias
 COPY package*.json ./
 
-# Instalamos las dependencias
+# Instala todas las dependencias
 RUN npm install
 
-# Generamos el cliente de Prisma
+# Copia todo el código fuente del proyecto al contenedor
+COPY . .
+
+# Genera el cliente de Prisma
 RUN npx prisma generate
 
-# Generamos la build de producción de Next.js
-# Esto optimiza el código y lo prepara para el despliegue
+# Genera la build de producción de Next.js
 RUN npm run build
 
 # === Etapa 2: Creación de la imagen final de producción ===
-# Usamos una imagen Node.js más ligera para el servidor final
-FROM node:20-alpine
+# Usa una imagen Node.js mínima para el servidor de ejecución
+FROM node:20-alpine AS runner
 
+# Establece el directorio de trabajo
 WORKDIR /app
 
-# Copiamos solo los archivos necesarios de la etapa de "builder"
-# Esto reduce el tamaño de la imagen final considerablemente
+# Copia los archivos de Next.js de la etapa de compilación
 COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/node_modules ./node_modules
+
+# Copia los archivos de la build que se necesitan en producción
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next/next.config.mjs ./.next/
+COPY --from=builder /app/next.config.js ./next.config.js
 
-# Expone el puerto por defecto
+# Instala solo las dependencias de producción
+RUN npm install --omit=dev
+
+# Expone el puerto que usará la aplicación
 EXPOSE 3003
 
-# El comando para iniciar el servidor de producción
+# Comando para iniciar la aplicación de producción
 CMD ["npm", "run", "start"]
