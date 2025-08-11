@@ -1,17 +1,10 @@
 // src/lib/prisma.ts
-
 import { PrismaClient } from '@prisma/client';
 
-// Agregamos el cliente de Prisma al objeto `global` de Node.js en desarrollo.
-// Esto evita que Next.js cree nuevas instancias en cada "hot reload".
-declare global {
-  var prisma: PrismaClient | undefined;
+const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
+
+export const prisma = globalForPrisma.prisma ?? new PrismaClient();
+
+if (process.env.NODE_ENV !== 'production') {
+  globalForPrisma.prisma = prisma;
 }
-
-const prisma = global.prisma || new PrismaClient();
-
-if (process.env.NODE_ENV === 'development') {
-  global.prisma = prisma;
-}
-
-export default prisma;

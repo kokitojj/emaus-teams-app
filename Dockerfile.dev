@@ -1,20 +1,32 @@
-# Usa una imagen base oficial de Node.js, ligera y optimizada
+# Dockerfile.dev
+# Imagen base ligera (Alpine) + compatibilidad glibc para lightningcss
 FROM node:20-alpine
 
-# Establece el directorio de trabajo dentro del contenedor
+# 1) Requisitos en Alpine (lightningcss y amigos)
+RUN apk add --no-cache libc6-compat openssl
+
+# 2) Directorio de trabajo
 WORKDIR /app
 
-# Copia los archivos de configuración para instalar las dependencias
+# 3) Instala dependencias con optional deps (necesarias para lightningcss)
 COPY package*.json ./
+RUN npm ci --include=optional
 
-# Copia todo el código fuente de la aplicación
+# 4) Genera Prisma (si usas Prisma)
+#    Copiamos solo la carpeta prisma para que se cachee bien esta capa
+COPY prisma ./prisma
+RUN npx prisma generate
+
+# 5) Copia el resto del código (después de instalar deps para cache óptimo)
 COPY . .
 
-# Instala todas las dependencias
-RUN npm install
-RUN npx prisma generate
-# Expone el puerto por defecto de Next.js
+# 6) Variables útiles en dev
+ENV HOST=0.0.0.0
+ENV PORT=3003
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# 7) Puerto dev
 EXPOSE 3003
 
-# Comando para ejecutar la aplicación en modo desarrollo
-CMD ["npm", "run", "dev"]
+# 8) Arranque en modo dev, accesible desde fuera del contenedor
+CMD ["npm", "run", "dev", "--", "-p", "3003", "-H", "0.0.0.0"]

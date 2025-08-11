@@ -28,6 +28,7 @@ model Worker {
 model TaskType {
   id              String       @id @default(uuid())
   name            String       @unique
+  color   String?  
   qualifiedWorkers Worker[]
   tasks           Task[]
 }

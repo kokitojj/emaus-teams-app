@@ -1,14 +1,13 @@
 services:
-  # === Servicio de la base de datos PostgreSQL ===
   db:
-    container_name: emaus-teams-db
     image: postgres:14-alpine
+    container_name: emaus-teams-db
     environment:
       POSTGRES_USER: admin
-      POSTGRES_PASSWORD: Manu@30042002
+      POSTGRES_PASSWORD: "Manu@30042002"
       POSTGRES_DB: emaus_teams_db
     ports:
-      - "5433:5432"
+      - "5433:5432"                     # host:container (para conectarte desde tu máquina)
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -16,25 +15,32 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
-  # === Servicio de la aplicación Next.js ===
-  emaus-teams-app:
+  app:
     container_name: emaus-teams-app
     build:
       context: .
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile.dev       # el Dockerfile.dev que te pasé antes
     ports:
       - "3003:3003"
     volumes:
-      - .:/app
-      - /app/node_modules
-      - /app/.next
-    env_file: # Esta línea le dice a Docker Compose que cargue las variables de un archivo .env
-      - .env
+      - .:/app                         # código de tu host
+      - /app/node_modules              # volumen anónimo: evita machacar node_modules
+      - /app/.next                     # volumen anónimo: mejora el HMR
+    env_file:
+      - .env                           # carga tus variables
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "3003"
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+      # Asegúrate de tener esto en tu .env:
+      # DATABASE_URL=postgresql://admin:Manu@30042002@db:5432/emaus_teams_db
     depends_on:
       db:
         condition: service_healthy
+    restart: unless-stopped
 
-# Define el volumen para que Docker gestione el almacenamiento de los datos de la DB
 volumes:
   postgres_data:

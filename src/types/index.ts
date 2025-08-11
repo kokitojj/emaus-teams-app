@@ -6,12 +6,12 @@ import { DefaultSession } from "next-auth";
  * Define la estructura de un Trabajador en la aplicación.
  */
 export interface Worker {
-  id: string; // Identificador único del trabajador.
-  username: string; // Nombre de usuario del trabajador.
-  email: string; // Correo electrónico del trabajador, usado para login y notificaciones.
-  phoneNumber: string | null; // Add this line
-  role: 'supervisor' | 'empleado' | 'admin'; // Rol del trabajador, con un tipo literal para ser específico.
-  status: 'activo' | 'vacaciones' | 'permiso'; // Estado actual del trabajador.
+  id: string;
+  username: string;
+  email: string | null;        
+  phoneNumber: string | null;
+  role: 'supervisor' | 'empleado' | 'admin';
+  status: 'activo' | 'vacaciones' | 'permiso';
 }
 
 /**
@@ -65,35 +65,30 @@ export interface LeaveRequest {
   worker: Worker;
 }
 
-// Extender el módulo next-auth para incluir propiedades personalizadas
+// Extensiones NextAuth
 declare module "next-auth" {
-  /**
-   * The shape of the user object returned in the OAuth providers' `profile` callback,
-   * available here as `user`.
-   */
   interface User {
     id: string;
     username: string;
-    role: string;
+    role: 'admin' | 'supervisor' | 'empleado';
+    workerId: string;                  // <- nuevo
   }
 
-  /**
-   * Returned by `useSession`, `getSession` and received as a prop on the `SessionProvider` React Context
-   */
   interface Session {
     user: {
       id: string;
       username: string;
-      role: string;
+      role: 'admin' | 'supervisor' | 'empleado';
+      workerId: string;                // <- nuevo
     } & DefaultSession["user"];
   }
 }
 
 declare module "next-auth/jwt" {
-  /** Returned by the `jwt` callback and `getToken`, when using JWT sessions */
   interface JWT {
     id: string;
     username: string;
-    role: string;
+    role: 'admin' | 'supervisor' | 'empleado';
+    workerId: string;                  // <- nuevo
   }
 }

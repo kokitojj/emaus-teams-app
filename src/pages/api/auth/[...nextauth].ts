@@ -1,69 +1,66 @@
-// src/pages/api/auth/[...nextauth].ts
-
-import NextAuth, { AuthOptions } from "next-auth";
-import CredentialsProvider from "next-auth/providers/credentials";
-import { PrismaAdapter } from "@next-auth/prisma-adapter";
-import { PrismaClient } from "@prisma/client";
-import bcrypt from "bcrypt";
+// pages/api/auth/[...nextauth].ts
+import NextAuth, { NextAuthOptions } from 'next-auth';
+import Credentials from 'next-auth/providers/credentials';
+import { compare } from 'bcrypt';
+import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-export const authOptions: AuthOptions = {
-  adapter: PrismaAdapter(prisma),
+export const authOptions: NextAuthOptions = {
+  session: { strategy: 'jwt' },
   providers: [
-    CredentialsProvider({
-      name: "Credentials",
+    Credentials({
+      name: 'credentials',
       credentials: {
-        username: { label: "Username", type: "text" },
-        password: { label: "Password", type: "password" },
+        username: { label: 'Usuario', type: 'text' },
+        password: { label: 'Contraseña', type: 'password' },
       },
-      async authorize(credentials) {
-        if (!credentials) {
-          return null;
-        }
-
-        const user = await prisma.worker.findUnique({
-          where: { username: credentials.username },
-        });
-
-        if (user && user.password) {
-          const isPasswordValid = await bcrypt.compare(credentials.password, user.password);
-          if (isPasswordValid) {
-            return {
-              id: user.id,
-              username: user.username,
-              role: user.role,
-            };
-          }
-        }
-        return null;
+      async authorize(creds) {
+        if (!creds?.username || !creds?.password) return null;
+        const worker = await prisma.worker.findUnique({ where: { username: creds.username } });
+        if (!worker) return null;
+        const ok = await compare(creds.password, worker.password);
+        if (!ok) return null;
+        return {
+          id: worker.id,
+          name: worker.username,
+          email: worker.email ?? undefined,
+          role: (worker.role as any) ?? 'empleado',
+          workerId: worker.id,
+          username: worker.username,
+        } as any;
       },
     }),
   ],
-  session: {
-    strategy: "jwt",
-  },
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.role = user.role;
-        token.id = user.id;
-        token.username = user.username;
+        token.role = (user as any).role ?? 'empleado';
+        token.workerId = (user as any).workerId;
+        token.username = (user as any).username;
+      }
+      // fallback por si el token viene sin workerId en refrescos
+      if (!token.workerId && token.email) {
+        const w = await prisma.worker.findFirst({ where: { email: token.email } });
+        if (w) {
+          token.workerId = w.id;
+          token.role = (w.role as any) ?? token.role ?? 'empleado';
+          token.username = w.username;
+        }
       }
       return token;
     },
     async session({ session, token }) {
-      if (token) {
-        session.user.role = token.role as string;
-        session.user.id = token.id as string;
-        session.user.username = token.username as string;
+      if (session.user) {
+        session.user.id = String(token.sub);
+        (session.user as any).role = (token as any).role ?? 'empleado';
+        (session.user as any).workerId = (token as any).workerId ?? null;
+        (session.user as any).username = (token as any).username ?? null;
       }
       return session;
     },
   },
-  pages: {
-    signIn: "/login",
-  },
+  pages: { signIn: '/login' },
 };
 
 export default NextAuth(authOptions);

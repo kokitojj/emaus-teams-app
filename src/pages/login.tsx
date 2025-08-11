@@ -1,90 +1,61 @@
-// src/pages/login.tsx
-
-import Head from 'next/head';
-import Link from 'next/link';
-import { useState } from 'react';
-import { useRouter } from 'next/router';
 import { signIn } from 'next-auth/react';
+import { FormEvent, useState } from 'react';
+import { useRouter } from 'next/router';
 
 export default function LoginPage() {
   const router = useRouter();
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [username, setU] = useState('');
+  const [password, setP] = useState('');
+  const [err, setErr] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    setErrorMessage(null);
+    setErr('');
+    setLoading(true);
 
-    // Llama a la función signIn de NextAuth.js
-    const result = await signIn('credentials', {
-      redirect: false, // Evita la redirección automática, la manejamos nosotros
+    const res = await signIn('credentials', {
+      redirect: false,          // <- no dejes que NextAuth redirija
       username,
       password,
     });
 
-    if (result?.error) {
-      setErrorMessage('Credenciales inválidas. Por favor, inténtalo de nuevo.');
+    setLoading(false);
+
+    if (res?.ok) {
+      // <- siempre al dashboard
+      router.replace('/');
     } else {
-      router.push('/'); // Redirige al dashboard después del login
+      setErr('Credenciales incorrectas o error de servidor.');
     }
-  };
+  }
 
   return (
-    <>
-      <Head>
-        <title>Login | Emaus Teams App</title>
-      </Head>
-      
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
-        <div className="bg-white rounded-lg shadow-md p-8 w-full max-w-md">
-          <h1 className="text-2xl font-bold mb-6 text-gray-800 text-center">Iniciar Sesión</h1>
-          
-          {errorMessage && (
-            <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4" role="alert">
-              <p className="font-bold">Error</p>
-              <p>{errorMessage}</p>
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit}>
-            <div className="mb-4">
-              <label htmlFor="username" className="block text-gray-700 text-sm font-bold mb-2">Nombre de Usuario</label>
-              <input
-                type="text"
-                id="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                required
-              />
-            </div>
-            <div className="mb-6">
-              <label htmlFor="password" className="block text-gray-700 text-sm font-bold mb-2">Contraseña</label>
-              <input
-                type="password"
-                id="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                required
-              />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <button
-                type="submit"
-                className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
-              >
-                Acceder
-              </button>
-              <Link href="/register" className="inline-block align-baseline font-bold text-sm text-blue-500 hover:text-blue-800">
-                ¿No tienes una cuenta?
-              </Link>
-            </div>
-          </form>
-        </div>
-      </div>
-    </>
+    <main className="min-h-screen flex items-center justify-center p-4">
+      <form onSubmit={onSubmit} className="w-full max-w-sm space-y-4 border rounded-xl p-6 bg-white">
+        <h1 className="text-xl font-semibold">Iniciar sesión</h1>
+        <input
+          className="w-full border rounded p-2"
+          placeholder="Usuario"
+          value={username}
+          onChange={e => setU(e.target.value)}
+        />
+        <input
+          className="w-full border rounded p-2"
+          type="password"
+          placeholder="Contraseña"
+          value={password}
+          onChange={e => setP(e.target.value)}
+        />
+        {err && <p className="text-red-600 text-sm">{err}</p>}
+        <button
+          className="w-full rounded bg-black text-white py-2 disabled:opacity-60"
+          disabled={loading}
+          type="submit"
+        >
+          {loading ? 'Entrando…' : 'Entrar'}
+        </button>
+      </form>
+    </main>
   );
 }

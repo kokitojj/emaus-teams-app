@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { Fragment, useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { Worker, Task, LeaveRequest } from '../types';
+import WeeklyCalendar from '@/components/dashboard/WeeklyCalendar';
 
 export default function Home() {
   const { data: session, status } = useSession();
@@ -12,26 +13,23 @@ export default function Home() {
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
 
   useEffect(() => {
-    if (status === 'loading' || status === 'unauthenticated') {
-      return;
-    }
+    if (status === 'loading' || status === 'unauthenticated') return;
 
     const fetchData = async () => {
       try {
         const [workersRes, tasksRes, leaveRes] = await Promise.all([
-          fetch('/api/workers'),
-          fetch('/api/tasks'),
-          fetch('/api/leave'),
+          fetch('/api/workers', { cache: 'no-store' }),
+          fetch('/api/tasks', { cache: 'no-store' }),
+          fetch('/api/leave', { cache: 'no-store' }),
         ]);
 
         const workersData: Worker[] = await workersRes.json();
         const tasksData: Task[] = await tasksRes.json();
         const leaveData: LeaveRequest[] = await leaveRes.json();
-        
+
         if (Array.isArray(workersData)) setWorkers(workersData);
         if (Array.isArray(tasksData)) setTasks(tasksData);
         if (Array.isArray(leaveData)) setLeaveRequests(leaveData);
-
       } catch (e) {
         console.error('Ocurrió un error inesperado al obtener datos.', e);
       }
@@ -43,7 +41,7 @@ export default function Home() {
     return <p>Cargando...</p>;
   }
 
-  const role = session?.user?.role as string;
+  const role = (session?.user?.role as string) || '';
   const activeWorkers = workers.filter(w => w.status === 'activo').length;
   const onVacation = workers.filter(w => w.status === 'vacaciones').length;
   const onLeave = workers.filter(w => w.status === 'permiso').length;
@@ -51,7 +49,7 @@ export default function Home() {
   const pendingTasksCount = Array.isArray(tasks) ? tasks.filter(t => !t.isCompleted).length : 0;
 
   const tasksLink = role === 'empleado' ? '/tasks/my-tasks' : '/tasks';
-  
+
   return (
     <Fragment>
       <Head>
@@ -60,8 +58,11 @@ export default function Home() {
 
       <div className="min-h-screen bg-gray-100 p-8">
         <h1 className="text-3xl font-bold mb-8 text-gray-800">Dashboard</h1>
+
         {status === 'unauthenticated' ? (
-          <p className="text-center text-xl text-red-500">Por favor, inicia sesión para acceder al dashboard.</p>
+          <p className="text-center text-xl text-red-500">
+            Por favor, inicia sesión para acceder al dashboard.
+          </p>
         ) : (
           <>
             {/* Resumen de trabajadores */}
@@ -80,13 +81,16 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Sección de Solicitudes y Tareas Pendientes */}
+            {/* Solicitudes y Tareas Pendientes */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
               {(role === 'supervisor' || role === 'admin') && (
                 <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-yellow-500">
                   <h2 className="text-lg font-semibold text-gray-600">Solicitudes Pendientes</h2>
                   <p className="text-4xl font-bold text-yellow-500 mt-2">{pendingRequestsCount}</p>
-                  <Link href="/leave" className="text-sm font-medium text-yellow-600 hover:text-yellow-800 mt-2 inline-block">
+                  <Link
+                    href="/leave"
+                    className="text-sm font-medium text-yellow-600 hover:text-yellow-800 mt-2 inline-block"
+                  >
                     Gestionar Solicitudes &rarr;
                   </Link>
                 </div>
@@ -94,11 +98,20 @@ export default function Home() {
               <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-blue-500">
                 <h2 className="text-lg font-semibold text-gray-600">Tareas Pendientes</h2>
                 <p className="text-4xl font-bold text-blue-500 mt-2">{pendingTasksCount}</p>
-                <Link href={tasksLink} className="text-sm font-medium text-blue-600 hover:text-blue-800 mt-2 inline-block">
+                <Link
+                  href={tasksLink}
+                  className="text-sm font-medium text-blue-600 hover:text-blue-800 mt-2 inline-block"
+                >
                   Ver Tareas &rarr;
                 </Link>
               </div>
             </div>
+
+            {/* Calendario semanal */}
+            <section className="bg-white rounded-lg shadow-md p-6">
+              <h2 className="text-lg font-semibold text-gray-800 mb-4">Calendario semanal</h2>
+              <WeeklyCalendar />
+            </section>
           </>
         )}
       </div>
