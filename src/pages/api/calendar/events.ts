@@ -1,3 +1,4 @@
+// src/pages/api/calendar/events.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
@@ -11,7 +12,9 @@ export interface CalendarEventDTO {
   start: string;        // ISO string
   end: string;          // ISO string
   resourceId?: string;
-  taskTypeName?: string;
+  taskTypeId?: string | null;
+  taskTypeName?: string | null;
+  color?: string | null; // <- color HEX del tipo de tarea
 }
 
 type Success = { events: CalendarEventDTO[] };
@@ -49,22 +52,25 @@ export default async function handler(
           effectiveWorkerId ? { workers: { some: { id: effectiveWorkerId } } } : {},
         ],
       },
-      include: { taskType: true, workers: { select: { id: true, username: true } } },
+      include: {
+        taskType: { select: { id: true, name: true, color: true } }, // <- traemos color
+        workers: { select: { id: true, username: true } },
+      },
       orderBy: { startTime: 'asc' },
     });
 
-    // Inferimos el tipo del elemento del array devuelto por findMany
-    type TaskWithRelations = Awaited<typeof tasks>[number];
-
-    const events: CalendarEventDTO[] = (tasks as TaskWithRelations[]).map((t) => ({
+    const events: CalendarEventDTO[] = tasks.map((t) => ({
       id: t.id,
       title: t.name,
       start: t.startTime.toISOString(),
       end: t.endTime.toISOString(),
       resourceId: t.workers?.[0]?.id,
-      taskTypeName: t.taskType?.name,
+      taskTypeId: t.taskTypeId ?? t.taskType?.id ?? null,
+      taskTypeName: t.taskType?.name ?? null,
+      color: t.taskType?.color ?? null, // <- color listo para el front
     }));
-console.log('USANDO PAGES ROUTER')
+
+    
     return res.status(200).json({ events });
   } catch (e) {
     console.error(e);

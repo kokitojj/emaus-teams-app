@@ -1,3 +1,4 @@
+// src/components/dashboard/WeeklyCalendar.tsx
 import { useEffect, useMemo, useState } from 'react';
 
 type CalendarEvent = {
@@ -6,6 +7,8 @@ type CalendarEvent = {
   start: string; // ISO
   end: string;   // ISO
   workerId?: string | null;
+  taskTypeId?: string | null;
+  color?: string | null;
 };
 
 type Worker = { id: string; username: string };
@@ -20,9 +23,16 @@ const HOUR_END = 20;
 const SLOT_PX = 56; // altura de 1 hora
 const TOTAL_HEIGHT = (HOUR_END - HOUR_START) * SLOT_PX;
 
+function hexToRgba(hex: string, alpha = 0.18) {
+  const h = (hex || '#3b82f6').replace('#', '');
+  const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16);
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 function startOfWeek(date: Date) {
   const d = new Date(date);
-  const day = d.getDay(); // 0 dom … 6 sáb
+  const day = d.getDay();
   const diffToMonday = (day + 6) % 7;
   d.setHours(0, 0, 0, 0);
   d.setDate(d.getDate() - diffToMonday);
@@ -42,7 +52,6 @@ function sameDay(a: Date, b: Date) {
 function minutesSinceHour(d: Date, baseHour: number) {
   return (d.getHours() - baseHour) * 60 + d.getMinutes();
 }
-// normaliza payload a array
 function coerceEvents(payload: any): CalendarEvent[] {
   if (Array.isArray(payload)) return payload;
   if (payload && Array.isArray(payload.events)) return payload.events;
@@ -62,8 +71,7 @@ export default function WeeklyCalendar({
 
   useEffect(() => {
     if (defaultWorkerId && defaultWorkerId !== workerId) setWorkerId(defaultWorkerId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [defaultWorkerId]);
+  }, [defaultWorkerId, workerId]);
 
   const weekDays = useMemo(() => (
     Array.from({ length: 7 }).map((_, i) => {
@@ -131,7 +139,7 @@ export default function WeeklyCalendar({
   const heightPxFromRange = (s: Date, e: Date) => {
     const top = topPxFromDate(s);
     const bottom = topPxFromDate(e);
-    const h = Math.max(28, bottom - top); // altura mínima visible
+    const h = Math.max(28, bottom - top);
     return Math.min(TOTAL_HEIGHT - top, h);
   };
 
@@ -194,21 +202,18 @@ export default function WeeklyCalendar({
         ))}
       </div>
 
-      {/* Cuerpo calendario: 1 fila, 8 columnas (gutter + 7 días) */}
+      {/* Cuerpo calendario */}
       <div className="grid grid-cols-[64px_repeat(7,1fr)] border-x border-b rounded-b-2xl">
         {/* Gutter de horas */}
         <div className="relative border-r" style={{ height: TOTAL_HEIGHT }}>
-          {/* líneas de hora */}
           <div
             className="absolute inset-0"
             style={{
               backgroundImage: `repeating-linear-gradient(to bottom, #e5e7eb 0, #e5e7eb 1px, transparent 1px, transparent ${SLOT_PX}px)`
             }}
           />
-          {/* labels de hora */}
           {hourSlots.map((h, i) => (
-            <div key={h} className="absolute right-1 text-xs text-gray-500"
-                 style={{ top: i * SLOT_PX + 6 }}>
+            <div key={h} className="absolute right-1 text-xs text-gray-500" style={{ top: i * SLOT_PX + 6 }}>
               {String(h).padStart(2, '0')}:00
             </div>
           ))}
@@ -219,28 +224,33 @@ export default function WeeklyCalendar({
           const evs = eventsOfDay(day);
           return (
             <div key={idx} className="relative border-l" style={{ height: TOTAL_HEIGHT }}>
-              {/* líneas de hora */}
               <div
                 className="absolute inset-0"
                 style={{
                   backgroundImage: `repeating-linear-gradient(to bottom, #f3f4f6 0, #f3f4f6 1px, transparent 1px, transparent ${SLOT_PX}px)`
                 }}
               />
-              {/* eventos */}
               {evs.map(ev => {
                 const s = new Date(ev.start);
                 const e = new Date(ev.end);
+                const col = ev.color || '#3b82f6';
+                const bg  = hexToRgba(col, 0.18);
                 const top = topPxFromDate(s);
                 const height = heightPxFromRange(s, e);
                 return (
                   <div
                     key={ev.id}
-                    className="absolute left-1 right-1 rounded-xl border bg-white shadow-sm p-2 text-xs"
-                    style={{ top, height }}
+                    className="absolute left-1 right-1 rounded-xl border bg-white shadow-sm p-2 text-xs pointer-events-auto"
+                    style={{
+                      top,           // ← px
+                      height,        // ← px
+                      borderColor: col,
+                      backgroundColor: bg,
+                    }}
                     title={ev.title}
                   >
                     <div className="font-semibold truncate">{ev.title}</div>
-                    <div className="text-[11px] text-gray-500">
+                    <div className="text-[11px] text-gray-600">
                       {s.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })} – {e.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
                     </div>
                   </div>
