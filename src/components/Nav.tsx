@@ -1,6 +1,7 @@
 // src/components/Nav.tsx
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { useSession, signOut } from 'next-auth/react';
 
 export default function Nav() {
@@ -11,8 +12,17 @@ export default function Nav() {
   return (
     <nav className="bg-gray-800 p-4 text-white shadow-md">
       <div className="container mx-auto flex justify-between items-center">
-        <Link href="/" className="text-xl font-bold hover:text-gray-300 transition-colors cursor-pointer">
-          Emaus Teams App
+         {/* Logo con enlace al inicio */}
+        <Link href="/" className="flex items-center space-x-2">
+          <Image src="/logo.png" // Ruta en /public
+            alt="Emaus Teams App"
+            width={40}
+            height={40}
+            className="rounded"
+          />
+          <span className="text-xl font-bold hover:text-gray-300 transition-colors cursor-pointer">
+            Emaus Teams App
+          </span>
         </Link>
         <div className="flex items-center space-x-4">
           {loading ? (
@@ -48,10 +58,15 @@ export default function Nav() {
                   <Link href="/taskTypes" className="hover:text-gray-300 transition-colors cursor-pointer">
                     Tipos de Tareas
                   </Link>
-                  <Link href="/leave" className="hover:text-gray-300 transition-colors cursor-pointer">
+                  <Link href="/admin/leave" className="hover:text-gray-300 transition-colors cursor-pointer">
                     Gestionar Solicitudes
                   </Link>
+                  
+
+
                 </>
+                
+
               )}
 
               <button

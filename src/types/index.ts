@@ -11,7 +11,7 @@ export interface Worker {
   email: string | null;        
   phoneNumber: string | null;
   role: 'supervisor' | 'empleado' | 'admin';
-  status: 'activo' | 'vacaciones' | 'permiso';
+  status: 'activo' | 'vacaciones' | 'permiso'| 'baja';
 }
 
 /**
@@ -56,7 +56,7 @@ export interface Task {
 export interface LeaveRequest {
   id: string; // Identificador único de la solicitud.
   workerId: string; // ID del trabajador que realiza la solicitud.
-  type: 'vacaciones' | 'permiso'; // Tipo de solicitud.
+  type: 'vacaciones' | 'permiso'| 'baja'; // Tipo de solicitud.
   startDate: Date; // Fecha de inicio del periodo solicitado.
   endDate: Date; // Fecha de finalización del periodo solicitado.
   reason: string; // Razón de la solicitud.

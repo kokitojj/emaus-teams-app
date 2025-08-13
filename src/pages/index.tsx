@@ -1,120 +1,117 @@
-// src/pages/index.tsx
+import { useEffect, useState } from 'react';
 import Head from 'next/head';
-import Link from 'next/link';
-import { Fragment, useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
-import { Worker, Task, LeaveRequest } from '../types';
-import WeeklyCalendar from '@/components/dashboard/WeeklyCalendar';
+import DashboardBajasCard from '@/components/DashboardBajasCard';
+import Calendar from '@/components/dashboard/WeeklyCalendar';
 
-export default function Home() {
-  const { data: session, status } = useSession();
-  const [workers, setWorkers] = useState<Worker[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
+type Overview = {
+  success: boolean;
+  date: string;
+  workers: {
+    total: number;
+    activos: number;
+    ausentesHoy: number;
+    detalleAusentesHoy: { bajas: number; vacaciones: number; permisos: number };
+  };
+  bajas: { total: number; pendientes: number; aprobadas: number; rechazadas: number; activasHoy: number };
+};
+
+function Card({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="bg-white rounded-2xl shadow p-4">
+      <h3 className="text-sm font-medium text-gray-600">{title}</h3>
+      <div className="mt-2">{children}</div>
+    </div>
+  );
+}
+function SkeletonLine() { return <div className="h-8 w-24 bg-gray-200 rounded animate-pulse" />; }
+function ErrorText({ msg }: { msg: string }) { return <p className="text-red-600">{msg}</p>; }
+
+export default function Dashboard() {
+  const { data: session } = useSession();
+  const role = (session?.user as any)?.role ?? 'empleado';
+  const userId = (session?.user as any)?.id ?? ''; // ajusta si tu sesión usa otro campo
+
+  const [stats, setStats] = useState<Overview | null>(null);
+  const [loadingStats, setLoadingStats] = useState(true);
+  const [errStats, setErrStats] = useState('');
 
   useEffect(() => {
-    if (status === 'loading' || status === 'unauthenticated') return;
-
-    const fetchData = async () => {
+    (async () => {
       try {
-        const [workersRes, tasksRes, leaveRes] = await Promise.all([
-          fetch('/api/workers', { cache: 'no-store' }),
-          fetch('/api/tasks', { cache: 'no-store' }),
-          fetch('/api/leave', { cache: 'no-store' }),
-        ]);
-
-        const workersData: Worker[] = await workersRes.json();
-        const tasksData: Task[] = await tasksRes.json();
-        const leaveData: LeaveRequest[] = await leaveRes.json();
-
-        if (Array.isArray(workersData)) setWorkers(workersData);
-        if (Array.isArray(tasksData)) setTasks(tasksData);
-        if (Array.isArray(leaveData)) setLeaveRequests(leaveData);
-      } catch (e) {
-        console.error('Ocurrió un error inesperado al obtener datos.', e);
+        setLoadingStats(true);
+        const r = await fetch('/api/stats/overview');
+        const j: Overview = await r.json();
+        if (!r.ok || !j.success) throw new Error((j as any)?.error || 'No se pudieron cargar las estadísticas');
+        setStats(j);
+      } catch (e: any) {
+        setErrStats(e.message || 'Error');
+      } finally {
+        setLoadingStats(false);
       }
-    };
-    fetchData();
-  }, [status]);
+    })();
+  }, []);
 
-  if (status === 'loading') {
-    return <p>Cargando...</p>;
-  }
-
-  const role = (session?.user?.role as string) || '';
-  const activeWorkers = workers.filter(w => w.status === 'activo').length;
-  const onVacation = workers.filter(w => w.status === 'vacaciones').length;
-  const onLeave = workers.filter(w => w.status === 'permiso').length;
-  const pendingRequestsCount = Array.isArray(leaveRequests) ? leaveRequests.filter(req => req.status === 'pendiente').length : 0;
-  const pendingTasksCount = Array.isArray(tasks) ? tasks.filter(t => !t.isCompleted).length : 0;
-
-  const tasksLink = role === 'empleado' ? '/tasks/my-tasks' : '/tasks';
+  const lockToWorker = role === 'empleado';
 
   return (
-    <Fragment>
-      <Head>
-        <title>Dashboard | Emaus Teams App</title>
-      </Head>
+    <>
+      <Head><title>Dashboard · Emaus Teams App</title></Head>
 
-      <div className="min-h-screen bg-gray-100 p-8">
-        <h1 className="text-3xl font-bold mb-8 text-gray-800">Dashboard</h1>
+      <div className="p-6 space-y-6">
+        <header>
+          <h1 className="text-2xl font-bold">Dashboard</h1>
+          <p className="text-sm text-gray-500">Resumen de personal y ausencias</p>
+        </header>
 
-        {status === 'unauthenticated' ? (
-          <p className="text-center text-xl text-red-500">
-            Por favor, inicia sesión para acceder al dashboard.
-          </p>
-        ) : (
-          <>
-            {/* Resumen de trabajadores */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <h2 className="text-lg font-semibold text-gray-600">Total de Activos</h2>
-                <p className="text-4xl font-bold text-green-600 mt-2">{activeWorkers}</p>
-              </div>
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <h2 className="text-lg font-semibold text-gray-600">De Vacaciones</h2>
-                <p className="text-4xl font-bold text-yellow-500 mt-2">{onVacation}</p>
-              </div>
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <h2 className="text-lg font-semibold text-gray-600">Con Permiso</h2>
-                <p className="text-4xl font-bold text-red-500 mt-2">{onLeave}</p>
-              </div>
-            </div>
+        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card title="Trabajadores (activos)">
+            {loadingStats ? <SkeletonLine /> : errStats ? <ErrorText msg={errStats} /> : stats ? (
+              <>
+                <p className="text-3xl font-semibold">{stats.workers.activos}</p>
+                <p className="text-xs text-gray-500">De {stats.workers.total} totales</p>
+              </>
+            ) : null}
+          </Card>
 
-            {/* Solicitudes y Tareas Pendientes */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-              {(role === 'supervisor' || role === 'admin') && (
-                <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-yellow-500">
-                  <h2 className="text-lg font-semibold text-gray-600">Solicitudes Pendientes</h2>
-                  <p className="text-4xl font-bold text-yellow-500 mt-2">{pendingRequestsCount}</p>
-                  <Link
-                    href="/leave"
-                    className="text-sm font-medium text-yellow-600 hover:text-yellow-800 mt-2 inline-block"
-                  >
-                    Gestionar Solicitudes &rarr;
-                  </Link>
-                </div>
-              )}
-              <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-blue-500">
-                <h2 className="text-lg font-semibold text-gray-600">Tareas Pendientes</h2>
-                <p className="text-4xl font-bold text-blue-500 mt-2">{pendingTasksCount}</p>
-                <Link
-                  href={tasksLink}
-                  className="text-sm font-medium text-blue-600 hover:text-blue-800 mt-2 inline-block"
-                >
-                  Ver Tareas &rarr;
-                </Link>
-              </div>
-            </div>
+          <Card title="Ausentes hoy">
+            {loadingStats ? <SkeletonLine /> : errStats ? <ErrorText msg={errStats} /> : stats ? (
+              <>
+                <p className="text-3xl font-semibold">{stats.workers.ausentesHoy}</p>
+                <p className="text-xs text-gray-500">
+                  Bajas {stats.workers.detalleAusentesHoy.bajas} · Vac {stats.workers.detalleAusentesHoy.vacaciones} · Perm {stats.workers.detalleAusentesHoy.permisos}
+                </p>
+              </>
+            ) : null}
+          </Card>
 
-            {/* Calendario semanal */}
-            <section className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-lg font-semibold text-gray-800 mb-4">Calendario semanal</h2>
-              <WeeklyCalendar />
-            </section>
-          </>
-        )}
+          <Card title="Bajas pendientes">
+            {loadingStats ? <SkeletonLine /> : errStats ? <ErrorText msg={errStats} /> : stats ? (
+              <>
+                <p className="text-3xl font-semibold">{stats.bajas.pendientes}</p>
+                <p className="text-xs text-gray-500">Por revisar</p>
+              </>
+            ) : null}
+          </Card>
+
+          <DashboardBajasCard />
+        </section>
+
+        {/* Calendario (WeeklyCalendar se autogestiona) */}
+        <section className="bg-white rounded-2xl shadow p-4">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-medium text-gray-600">Calendario</h3>
+            <a href="/api/calendar/leaves.ics" className="text-blue-600 underline" target="_blank" rel="noreferrer">
+              Exportar ICS
+            </a>
+          </div>
+
+          <Calendar
+            defaultWorkerId={String(userId)}
+            lockToWorker={lockToWorker}
+          />
+        </section>
       </div>
-    </Fragment>
+    </>
   );
 }

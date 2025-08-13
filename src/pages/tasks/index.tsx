@@ -94,7 +94,7 @@ export default function TasksPage() {
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold text-gray-800">Tareas</h1>
           {isAdminOrSupervisor && (
-            <Link href="/tasks/add">
+            <Link href="/tasks/create">
               <button className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors">
                 Añadir Tarea
               </button>

@@ -11,51 +11,64 @@ datasource db {
 
 // Modelo de Trabajador (ahora como Usuario)
 model Worker {
-  id              String       @id @default(uuid())
-  username        String       @unique
-  email           String?      @unique
-  password        String
-  phoneNumber     String?
-  role            String       @default("empleado")
-  status          String       @default("activo")
-  leaveRequests   LeaveRequest[]
-  taskTypes       TaskType[]
+  id            String         @id @default(uuid())
+  username      String         @unique
+  email         String?        @unique
+  password      String
+  phoneNumber   String?
+  role          String         @default("empleado")
+  status        String         @default("activo")
+  leaveRequests LeaveRequest[]
+  taskTypes     TaskType[]
   // Relación de muchos a muchos con el modelo Task
-  tasks           Task[]
+  tasks         Task[]
 }
 
 // Nuevo: Modelo para Tipos de Tareas
 model TaskType {
-  id              String       @id @default(uuid())
-  name            String       @unique
-  color   String?  
+  id               String   @id @default(uuid())
+  name             String   @unique
+  color            String?
   qualifiedWorkers Worker[]
-  tasks           Task[]
+  tasks            Task[]
 }
 
 // Modelo de Tarea
 model Task {
-  id               String       @id @default(uuid())
-  name             String
-  isCompleted      Boolean      @default(false)
-  observations     String?
-  taskType         TaskType     @relation(fields: [taskTypeId], references: [id])
-  taskTypeId       String
-  startTime        DateTime
-  endTime          DateTime
-  // Relación de muchos a muchos con el modelo Worker
-  workers          Worker[]
+  id           String   @id @default(uuid())
+  name         String
+  observations String?
+  taskType     TaskType @relation(fields: [taskTypeId], references: [id])
+  taskTypeId   String
+  startTime    DateTime
+  endTime      DateTime
+  isCompleted  Boolean  @default(false)
+  workers      Worker[]
+  seriesId        String?     // mismo valor para todas las ocurrencias de una serie
+  recurrenceRule  String?     // opcional: guardamos la RRULE calculada
+
+  @@index([seriesId])
 }
 
-// Modelo de Solicitud de vacaciones o permiso
+
 model LeaveRequest {
-  id               String   @id @default(uuid())
-  type             String
-  startDate        DateTime
-  endDate          DateTime
-  reason           String?
-  status           String   @default("pendiente")
-  worker           Worker   @relation(fields: [workerId], references: [id])
-  workerId         String
-  supervisorId     String?
+  id           String   @id @default(uuid())
+  type         String
+  startDate    DateTime
+  endDate      DateTime
+  reason       String?
+  status       String   @default("pendiente")
+  worker       Worker   @relation(fields: [workerId], references: [id])
+  workerId     String
+  supervisorId String?
+  managerNote  String?
+  reviewedAt   DateTime?
+  reviewedBy   String?
+
+  @@index([workerId])
+  @@index([type])
+  @@index([status])
+  @@index([startDate])
+  @@index([endDate])
+  @@index([reviewedAt])
 }

@@ -1,289 +1,370 @@
 // src/pages/tasks/[id].tsx
 import Head from 'next/head';
+import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useEffect, useMemo, useState } from 'react';
-import { useSession } from 'next-auth/react';
+import ConflictsModal, { ConflictBundle } from '@/components/leaves/ConflictsModal';
 
 type Worker = { id: string; username: string };
-type TaskType = {
-  id: string;
-  name: string;
-  color?: string | null;
-  qualifiedWorkers?: { id: string; username: string }[];
-};
-type TaskDTO = {
+type TaskType = { id: string; name: string; color?: string | null };
+
+type LoadedTask = {
   id: string;
   title: string;
   description?: string | null;
-  start: string; // ISO
-  end: string;   // ISO
-  taskTypeId: string | null;
-  isCompleted?: boolean;
-  workers?: Worker[];
-  workerIds?: string[];
+  date: string;            // YYYY-MM-DD
+  startTimeHHmm: string;   // HH:mm
+  endTimeHHmm: string;     // HH:mm
+  taskTypeId: string;
+  taskTypeName?: string | null;
+  taskTypeColor?: string | null;
+  workerIds: string[];
+  workers: { id: string; username: string }[];
 };
 
-// ---- helpers de fecha/hora (LOCAL <-> ISO) ----
-function toInputLocal(iso?: string | null) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  const yyyy = d.getFullYear();
-  const MM = pad(d.getMonth() + 1);
-  const dd = pad(d.getDate());
-  const hh = pad(d.getHours());
-  const mm = pad(d.getMinutes());
-  return `${yyyy}-${MM}-${dd}T${hh}:${mm}`;
-}
-function fromInputLocalToISO(inputValue: string) {
-  return new Date(inputValue).toISOString();
-}
-
-// ---- API helper ----
-async function fetchTaskTypeDetail(id: string): Promise<TaskType | null> {
-  try {
-    const res = await fetch(`/api/taskTypes/${id}`, { cache: 'no-store' });
-    if (!res.ok) return null;
-    return (await res.json()) as TaskType;
-  } catch {
-    return null;
-  }
+function toTimeStringSafe(v?: string) {
+  // Normaliza "9:0" -> "09:00"
+  if (!v) return '';
+  const [h, m] = v.split(':');
+  const hh = String(h ?? '00').padStart(2, '0');
+  const mm = String(m ?? '00').padStart(2, '0');
+  return `${hh}:${mm}`;
 }
 
 export default function EditTaskPage() {
   const router = useRouter();
   const { id } = router.query as { id?: string };
-  const { status } = useSession();
 
-  const [loading, setLoading] = useState(true);
-  const [task, setTask] = useState<TaskDTO | null>(null);
-  const [allWorkers, setAllWorkers] = useState<Worker[]>([]);
-  const [selectedWorkerIds, setSelectedWorkerIds] = useState<string[]>([]);
+  // catálogos
+  const [workers, setWorkers] = useState<Worker[]>([]);
   const [taskTypes, setTaskTypes] = useState<TaskType[]>([]);
-  const [qualifiedIds, setQualifiedIds] = useState<Set<string>>(new Set());
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [loadingLookups, setLoadingLookups] = useState(true);
 
-  // Carga inicial: tarea + workers + tipos
+  // carga de tarea
+  const [loadingTask, setLoadingTask] = useState(true);
+  const [loadErr, setLoadErr] = useState('');
+
+  // form
+  const [title, setTitle] = useState('');
+  const [taskTypeId, setTaskTypeId] = useState('');
+  const [date, setDate] = useState('');          // YYYY-MM-DD
+  const [start, setStart] = useState('09:00');   // HH:mm
+  const [end, setEnd] = useState('10:00');       // HH:mm
+  const [description, setDescription] = useState('');
+  const [selectedWorkers, setSelectedWorkers] = useState<string[]>([]);
+
+  // UI submit
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState('');
+  const [okMsg, setOkMsg] = useState('');
+
+  // modal conflictos
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalConflicts, setModalConflicts] = useState<ConflictBundle[]>([]);
+  const [pendingForce, setPendingForce] = useState<{
+    payload: any;
+    action: 'approve_unassign' | 'save_pending';
+  } | null>(null);
+
+  // validaciones
+  const validTimeRange = useMemo(() => {
+    if (!start || !end) return false;
+    return start < end;
+  }, [start, end]);
+
+  const canSubmit = useMemo(() => {
+    if (!title || !taskTypeId || !date || !start || !end || selectedWorkers.length === 0) return false;
+    if (!validTimeRange) return false;
+    return !submitting;
+  }, [title, taskTypeId, date, start, end, selectedWorkers, submitting, validTimeRange]);
+
+  // cargar catálogos
   useEffect(() => {
-    if (!id || status === 'loading') return;
-    if (status === 'unauthenticated') {
-      setLoading(false);
-      setErrorMsg('No autenticado.');
-      return;
-    }
-
     (async () => {
-      setLoading(true);
-      setErrorMsg(null);
       try {
-        const [taskRes, workersRes, typesRes] = await Promise.all([
-          fetch(`/api/tasks/${id}`, { cache: 'no-store' }),
+        setLoadingLookups(true);
+        const [wRes, ttRes] = await Promise.all([
           fetch('/api/workers', { cache: 'no-store' }),
           fetch('/api/taskTypes', { cache: 'no-store' }),
         ]);
-        if (!taskRes.ok) throw new Error('No se pudo cargar la tarea.');
-        if (!workersRes.ok) throw new Error('No se pudieron cargar los trabajadores.');
-        if (!typesRes.ok) throw new Error('No se pudieron cargar los tipos.');
-
-        const t = (await taskRes.json()) as TaskDTO;
-        const w = (await workersRes.json()) as Worker[];
-        const tt = (await typesRes.json()) as TaskType[];
-
-        setTask(t);
-        setAllWorkers(Array.isArray(w) ? w : []);
-        setTaskTypes(Array.isArray(tt) ? tt : []);
-
-        // Selección inicial de trabajadores
-        const initialIds = (t.workerIds && Array.isArray(t.workerIds))
-          ? t.workerIds
-          : (t.workers?.map(x => x.id) ?? []);
-        setSelectedWorkerIds(initialIds);
-      } catch (e: any) {
-        setErrorMsg(e?.message ?? 'Error cargando datos.');
+        const wJson = await wRes.json().catch(() => []);
+        const tJson = await ttRes.json().catch(() => []);
+        const wArr = Array.isArray(wJson) ? wJson : Array.isArray(wJson?.data) ? wJson.data : [];
+        const tArr = Array.isArray(tJson) ? tJson : Array.isArray(tJson?.data) ? tJson.data : [];
+        setWorkers(wArr.map((w: any) => ({ id: w.id, username: w.username })));
+        setTaskTypes(tArr.map((t: any) => ({ id: t.id, name: t.name, color: t.color ?? null })));
       } finally {
-        setLoading(false);
+        setLoadingLookups(false);
       }
     })();
-  }, [id, status]);
+  }, []);
 
-  // Calcular IDs calificados (no filtramos: solo etiquetamos)
+  // cargar tarea
   useEffect(() => {
+    if (!id) return;
     (async () => {
-      if (!task?.taskTypeId) {
-        setQualifiedIds(new Set());
+      try {
+        setLoadingTask(true);
+        setLoadErr('');
+        const res = await fetch(`/api/tasks/${id}`, { cache: 'no-store' });
+        const j = await res.json();
+        if (!res.ok || !j?.success) throw new Error(j?.message || j?.error || `HTTP ${res.status}`);
+        const t: LoadedTask = j.task;
+
+        setTitle(t.title || '');
+        setTaskTypeId(t.taskTypeId || '');
+        setDate(t.date || '');
+        setStart(toTimeStringSafe(t.startTimeHHmm) || '09:00');
+        setEnd(toTimeStringSafe(t.endTimeHHmm) || '10:00');
+        setDescription(t.description || '');
+        setSelectedWorkers(Array.isArray(t.workerIds) ? t.workerIds : []);
+      } catch (e: any) {
+        setLoadErr(e?.message || 'No se pudo cargar la tarea');
+      } finally {
+        setLoadingTask(false);
+      }
+    })();
+  }, [id]);
+
+  const toggleWorker = (wid: string) => {
+    setSelectedWorkers(prev => prev.includes(wid) ? prev.filter(x => x !== wid) : [...prev, wid]);
+  };
+
+  async function submitPatch(force = false) {
+    if (!id) return;
+    const payload: any = {
+      title,
+      taskTypeId,
+      date,
+      start,
+      end,
+      description,
+      workerIds: selectedWorkers,
+    };
+    if (force) payload.force = true;
+
+    const res = await fetch(`/api/tasks/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    return res;
+  }
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canSubmit) return;
+
+    setErr('');
+    setOkMsg('');
+    setSubmitting(true);
+
+    try {
+      let res = await submitPatch(false);
+
+      if (res.status === 409) {
+        const j = await res.json();
+        setModalConflicts(j?.conflicts || []);
+        // Ofrecemos dos opciones:
+        // - Guardar igualmente (force) -> en edición no hay "aprobar", así que usamos 'save_pending'
+        // - Aprobar + desasignar NO aplica aquí (esto es para leaves), así que usamos 'save_pending'
+        setPendingForce({ payload: {}, action: 'save_pending' });
+        setModalOpen(true);
+        setSubmitting(false);
         return;
       }
-      const fromList = taskTypes.find(t => t.id === task.taskTypeId);
-      const detail = fromList?.qualifiedWorkers ? fromList : await fetchTaskTypeDetail(task.taskTypeId);
-      const ids = new Set((detail?.qualifiedWorkers ?? []).map(w => w.id));
-      setQualifiedIds(ids);
-    })();
-  }, [task?.taskTypeId, taskTypes]);
 
-  const canSave = useMemo(
-    () => !!task && !!task.title && !!task.taskTypeId && selectedWorkerIds.length > 0,
-    [task, selectedWorkerIds]
-  );
-
-  const onChangeTaskType = (newTypeId: string) => {
-    setTask(prev => (prev ? { ...prev, taskTypeId: newTypeId } : prev));
-    // mantenemos la selección actual: solo etiquetamos calificados, no ocultamos
-  };
-
-  const onChangeWorkers = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const ids = Array.from(e.target.selectedOptions).map(o => o.value);
-    setSelectedWorkerIds(ids);
-  };
-
-  const setField = (field: keyof TaskDTO, value: any) => {
-    setTask(prev => (prev ? { ...prev, [field]: value } : prev));
-  };
-
-  const save = async () => {
-    if (!id || !task) return;
-    try {
-      const payload = {
-        title: task.title,
-        description: task.description ?? null,
-        start: task.start,
-        end: task.end,
-        taskTypeId: task.taskTypeId,
-        isCompleted: !!task.isCompleted,
-        workerIds: selectedWorkerIds,
-      };
-      const res = await fetch(`/api/tasks/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const txt = await res.text();
-        throw new Error(`No se pudo guardar: ${txt}`);
+      const j2 = await res.json().catch(() => ({} as any));
+      if (!res.ok || !j2?.success) {
+        setErr(j2?.message || j2?.error || `HTTP ${res.status}`);
+        setSubmitting(false);
+        return;
       }
-      await router.push('/tasks');
-    } catch (e: any) {
-      setErrorMsg(e?.message ?? 'Error guardando la tarea.');
-    }
-  };
 
-  if (status === 'loading' || loading) return <p className="p-8 text-center">Cargando…</p>;
-  if (!task) return <p className="p-8 text-center text-red-600">{errorMsg || 'No se encontró la tarea.'}</p>;
+      setOkMsg('Tarea actualizada correctamente');
+      setTimeout(() => router.push('/tasks'), 400);
+    } catch (e: any) {
+      setErr(e?.message || 'Error al guardar');
+    } finally {
+      // si hay 409 no queremos cerrar aquí; el return anterior ya hizo setSubmitting(false)
+      if (!modalOpen) setSubmitting(false);
+    }
+  }
+
+  async function handleModalAction(action: 'approve_unassign' | 'save_pending' | 'cancel') {
+    // En edición de tarea, solo usamos 'save_pending' (equivale a forzar ignorando conflictos).
+    if (action !== 'save_pending') {
+      setModalOpen(false);
+      setPendingForce(null);
+      return;
+    }
+    try {
+      setSubmitting(true);
+      const res = await submitPatch(true);
+      const j2 = await res.json().catch(() => ({} as any));
+      if (!res.ok || !j2?.success) {
+        setErr(j2?.message || j2?.error || `HTTP ${res.status}`);
+        setSubmitting(false);
+        setModalOpen(false);
+        setPendingForce(null);
+        return;
+      }
+      setOkMsg('Tarea actualizada correctamente (forzada)');
+      setModalOpen(false);
+      setPendingForce(null);
+      setTimeout(() => router.push('/tasks'), 400);
+    } catch (e: any) {
+      setErr(e?.message || 'Error al guardar');
+      setSubmitting(false);
+      setModalOpen(false);
+      setPendingForce(null);
+    }
+  }
 
   return (
     <>
-      <Head><title>Editar Tarea | Emaus Teams App</title></Head>
-      <div className="min-h-screen bg-gray-100 p-8">
-        <h1 className="text-3xl font-bold text-gray-800 mb-6">Editar Tarea</h1>
+      <Head><title>Editar tarea · Emaus Teams App</title></Head>
 
-        <div className="bg-white rounded-lg shadow-md p-6 space-y-4 max-w-3xl">
-          {errorMsg && (
-            <div className="p-3 rounded border border-red-200 bg-red-50 text-sm text-red-700">{errorMsg}</div>
-          )}
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <label className="flex flex-col gap-1">
-              <span className="text-sm text-gray-600">Título</span>
-              <input
-                className="border rounded px-3 py-2"
-                value={task.title || ''}
-                onChange={e => setField('title', e.target.value)}
-              />
-            </label>
-
-            <label className="flex flex-col gap-1">
-              <span className="text-sm text-gray-600">Tipo de tarea</span>
-              <select
-                className="border rounded px-3 py-2"
-                value={task.taskTypeId ?? ''}
-                onChange={e => onChangeTaskType(e.target.value)}
-              >
-                {taskTypes.map(tt => (
-                  <option key={tt.id} value={tt.id}>
-                    {tt.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="flex flex-col gap-1 md:col-span-2">
-              <span className="text-sm text-gray-600">Trabajadores (puedes elegir varios)</span>
-              <select
-                className="border rounded px-3 py-2 min-h-[160px]"
-                multiple
-                value={selectedWorkerIds}
-                onChange={onChangeWorkers}
-              >
-                {allWorkers.map(w => {
-                  const isQualified = qualifiedIds.has(w.id);
-                  return (
-                    <option key={w.id} value={w.id}>
-                      {w.username}{isQualified ? '' : ' (no calificado)'}
-                    </option>
-                  );
-                })}
-              </select>
-              <span className="text-xs text-gray-500">
-                Los “no calificados” se muestran para referencia; puedes seleccionarlos si lo necesitas.
-              </span>
-            </label>
-
-            <label className="flex flex-col gap-1">
-              <span className="text-sm text-gray-600">Inicio</span>
-              <input
-                type="datetime-local"
-                className="border rounded px-3 py-2"
-                value={toInputLocal(task.start)}
-                onChange={e => setField('start', fromInputLocalToISO(e.target.value))}
-              />
-            </label>
-
-            <label className="flex flex-col gap-1">
-              <span className="text-sm text-gray-600">Fin</span>
-              <input
-                type="datetime-local"
-                className="border rounded px-3 py-2"
-                value={toInputLocal(task.end)}
-                onChange={e => setField('end', fromInputLocalToISO(e.target.value))}
-              />
-            </label>
-
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-5 w-5"
-                checked={!!task.isCompleted}
-                onChange={e => setField('isCompleted', e.target.checked)}
-              />
-              <span className="text-sm text-gray-600">Completada</span>
-            </label>
-          </div>
-
-          <label className="flex flex-col gap-1">
-            <span className="text-sm text-gray-600">Descripción</span>
-            <textarea
-              className="border rounded px-3 py-2 min-h-[96px]"
-              value={task.description ?? ''}
-              onChange={e => setField('description', e.target.value)}
-            />
-          </label>
-
-          <div className="flex gap-3 pt-2">
-            <button
-              onClick={save}
-              disabled={!canSave}
-              className="px-4 py-2 rounded-lg bg-blue-600 text-white disabled:opacity-60"
-            >
-              Guardar
-            </button>
-            <button
-              onClick={() => router.push('/tasks')}
-              className="px-4 py-2 rounded-lg border"
-            >
-              Cancelar
-            </button>
-          </div>
+      <div className="p-6 max-w-4xl mx-auto space-y-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold">Editar tarea</h1>
+          <Link href="/tasks" className="text-blue-600 hover:underline">Volver a Tareas</Link>
         </div>
+
+        {loadingTask ? (
+          <div className="bg-white rounded-2xl shadow p-6">Cargando…</div>
+        ) : loadErr ? (
+          <div className="bg-white rounded-2xl shadow p-6 text-red-600">{loadErr}</div>
+        ) : (
+          <form onSubmit={onSubmit} className="bg-white rounded-2xl shadow p-6 space-y-5">
+            {err && <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700">{err}</div>}
+            {okMsg && <div className="rounded-lg border border-green-300 bg-green-50 p-3 text-sm text-green-700">{okMsg}</div>}
+
+            {/* Básicos */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
+                <input
+                  value={title}
+                  onChange={e => setTitle(e.target.value)}
+                  className="w-full border rounded-lg px-3 py-2"
+                  placeholder="Ej. Recogidas con la furgoneta"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de tarea</label>
+                <select
+                  value={taskTypeId}
+                  onChange={e => setTaskTypeId(e.target.value)}
+                  className="w-full border rounded-lg px-3 py-2"
+                  required
+                >
+                  <option value="">Seleccionar…</option>
+                  {taskTypes.map(tt => (
+                    <option key={tt.id} value={tt.id}>{tt.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Fecha y horas */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Fecha</label>
+                <input
+                  type="date"
+                  value={date}
+                  onChange={e => setDate(e.target.value)}
+                  className="w-full border rounded-lg px-3 py-2"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Inicio</label>
+                <input
+                  type="time"
+                  value={start}
+                  onChange={e => setStart(toTimeStringSafe(e.target.value))}
+                  className="w-full border rounded-lg px-3 py-2"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Fin</label>
+                <input
+                  type="time"
+                  value={end}
+                  onChange={e => setEnd(toTimeStringSafe(e.target.value))}
+                  className="w-full border rounded-lg px-3 py-2"
+                  required
+                />
+                {!validTimeRange && <p className="text-xs text-red-600 mt-1">El fin debe ser posterior al inicio.</p>}
+              </div>
+            </div>
+
+            {/* Trabajadores */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Trabajadores</label>
+              {loadingLookups ? (
+                <div className="text-sm text-gray-500">Cargando…</div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                  {workers.map(w => {
+                    const checked = selectedWorkers.includes(w.id);
+                    return (
+                      <label key={w.id} className="flex items-center gap-2 border rounded-lg px-3 py-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleWorker(w.id)}
+                        />
+                        <span>{w.username}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+              {selectedWorkers.length === 0 && (
+                <p className="text-xs text-amber-600 mt-1">Selecciona al menos un trabajador.</p>
+              )}
+            </div>
+
+            {/* Observaciones */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Observaciones</label>
+              <textarea
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                rows={3}
+                className="w-full border rounded-lg px-3 py-2"
+                placeholder="Opcional"
+              />
+            </div>
+
+            {/* Acciones */}
+            <div className="flex items-center gap-3">
+              <button
+                type="submit"
+                disabled={!canSubmit}
+                className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white px-4 py-2 rounded-lg"
+              >
+                {submitting ? 'Guardando…' : 'Guardar cambios'}
+              </button>
+              <Link href="/tasks" className="px-4 py-2 rounded-lg border">Cancelar</Link>
+            </div>
+          </form>
+        )}
       </div>
+
+      {/* Modal de conflictos (forzar guardado) */}
+      <ConflictsModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        mode="create"            // reutilizamos el layout; la acción real será "save_pending"
+        conflicts={modalConflicts}
+        onAction={handleModalAction}
+      />
     </>
   );
 }
