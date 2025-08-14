@@ -1,4 +1,3 @@
-// src/pages/tasks/[id].tsx
 import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
@@ -23,7 +22,6 @@ type LoadedTask = {
 };
 
 function toTimeStringSafe(v?: string) {
-  // Normaliza "9:0" -> "09:00"
   if (!v) return '';
   const [h, m] = v.split(':');
   const hh = String(h ?? '00').padStart(2, '0');
@@ -35,16 +33,13 @@ export default function EditTaskPage() {
   const router = useRouter();
   const { id } = router.query as { id?: string };
 
-  // catálogos
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [taskTypes, setTaskTypes] = useState<TaskType[]>([]);
   const [loadingLookups, setLoadingLookups] = useState(true);
 
-  // carga de tarea
   const [loadingTask, setLoadingTask] = useState(true);
   const [loadErr, setLoadErr] = useState('');
 
-  // form
   const [title, setTitle] = useState('');
   const [taskTypeId, setTaskTypeId] = useState('');
   const [date, setDate] = useState('');          // YYYY-MM-DD
@@ -53,20 +48,14 @@ export default function EditTaskPage() {
   const [description, setDescription] = useState('');
   const [selectedWorkers, setSelectedWorkers] = useState<string[]>([]);
 
-  // UI submit
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState('');
   const [okMsg, setOkMsg] = useState('');
 
-  // modal conflictos
   const [modalOpen, setModalOpen] = useState(false);
   const [modalConflicts, setModalConflicts] = useState<ConflictBundle[]>([]);
-  const [pendingForce, setPendingForce] = useState<{
-    payload: any;
-    action: 'approve_unassign' | 'save_pending';
-  } | null>(null);
+  const [pendingForce, setPendingForce] = useState<{ payload: any; action: 'approve_unassign' | 'save_pending'; } | null>(null);
 
-  // validaciones
   const validTimeRange = useMemo(() => {
     if (!start || !end) return false;
     return start < end;
@@ -78,7 +67,6 @@ export default function EditTaskPage() {
     return !submitting;
   }, [title, taskTypeId, date, start, end, selectedWorkers, submitting, validTimeRange]);
 
-  // cargar catálogos
   useEffect(() => {
     (async () => {
       try {
@@ -99,7 +87,6 @@ export default function EditTaskPage() {
     })();
   }, []);
 
-  // cargar tarea
   useEffect(() => {
     if (!id) return;
     (async () => {
@@ -162,21 +149,18 @@ export default function EditTaskPage() {
     try {
       let res = await submitPatch(false);
 
-      if (res.status === 409) {
+      if (res && res.status === 409) {
         const j = await res.json();
         setModalConflicts(j?.conflicts || []);
-        // Ofrecemos dos opciones:
-        // - Guardar igualmente (force) -> en edición no hay "aprobar", así que usamos 'save_pending'
-        // - Aprobar + desasignar NO aplica aquí (esto es para leaves), así que usamos 'save_pending'
         setPendingForce({ payload: {}, action: 'save_pending' });
         setModalOpen(true);
         setSubmitting(false);
         return;
       }
 
-      const j2 = await res.json().catch(() => ({} as any));
-      if (!res.ok || !j2?.success) {
-        setErr(j2?.message || j2?.error || `HTTP ${res.status}`);
+      const j2 = await res?.json().catch(() => ({} as any));
+      if (!res?.ok || !j2?.success) {
+        setErr(j2?.message || j2?.error || `HTTP ${res?.status}`);
         setSubmitting(false);
         return;
       }
@@ -186,13 +170,11 @@ export default function EditTaskPage() {
     } catch (e: any) {
       setErr(e?.message || 'Error al guardar');
     } finally {
-      // si hay 409 no queremos cerrar aquí; el return anterior ya hizo setSubmitting(false)
       if (!modalOpen) setSubmitting(false);
     }
   }
 
   async function handleModalAction(action: 'approve_unassign' | 'save_pending' | 'cancel') {
-    // En edición de tarea, solo usamos 'save_pending' (equivale a forzar ignorando conflictos).
     if (action !== 'save_pending') {
       setModalOpen(false);
       setPendingForce(null);
@@ -201,9 +183,9 @@ export default function EditTaskPage() {
     try {
       setSubmitting(true);
       const res = await submitPatch(true);
-      const j2 = await res.json().catch(() => ({} as any));
-      if (!res.ok || !j2?.success) {
-        setErr(j2?.message || j2?.error || `HTTP ${res.status}`);
+      const j2 = await res?.json().catch(() => ({} as any));
+      if (!res?.ok || !j2?.success) {
+        setErr(j2?.message || j2?.error || `HTTP ${res?.status}`);
         setSubmitting(false);
         setModalOpen(false);
         setPendingForce(null);
@@ -342,6 +324,36 @@ export default function EditTaskPage() {
               />
             </div>
 
+            {/* Repetición (solo informativo por ahora) */}
+            <div className="border-t pt-4 opacity-60 pointer-events-none">
+              <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                <input type="checkbox" checked={false} readOnly />
+                Repetir esta tarea
+              </label>
+              <p className="text-xs text-gray-500 mt-2">
+                Esta pantalla edita una única tarea. Podemos habilitar edición de series completas si lo necesitas.
+              </p>
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <div className="text-xs text-gray-500 mb-1">Días de la semana</div>
+                  <div className="flex flex-wrap gap-2">
+                    {['L','M','X','J','V','S','D'].map((d,i) => (
+                      <span key={i} className="px-3 py-1 rounded-full border bg-white text-gray-400">{d}</span>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500 mb-1">Cada</div>
+                  <input className="w-24 border rounded-lg px-3 py-2" value={1} readOnly />
+                  <span className="ml-2 text-sm text-gray-600">semana(s)</span>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500 mb-1">Hasta</div>
+                  <input className="border rounded-lg px-3 py-2" value="" readOnly />
+                </div>
+              </div>
+            </div>
+
             {/* Acciones */}
             <div className="flex items-center gap-3">
               <button
@@ -361,7 +373,7 @@ export default function EditTaskPage() {
       <ConflictsModal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
-        mode="create"            // reutilizamos el layout; la acción real será "save_pending"
+        mode="create"
         conflicts={modalConflicts}
         onAction={handleModalAction}
       />

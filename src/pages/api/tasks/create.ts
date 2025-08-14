@@ -1,27 +1,42 @@
-// src/pages/api/tasks/create.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import { prisma } from '@/lib/prisma';
 
-function toDateSafe(v?: string): Date | null {
-  if (!v) return null;
-  const d = new Date(v);
-  return isNaN(d.getTime()) ? null : d;
+/* =========================
+ * Utilidades en UTC (sin desfases DST/servidor)
+ * ========================= */
+function pad2(n: number) { return String(n).padStart(2, '0'); }
+function parseYmdHhmmAsUTC(ymd: string, hhmm: string): Date {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const [h, min] = hhmm.split(':').map(Number);
+  return new Date(Date.UTC(y, m - 1, d, h, min, 0, 0));
 }
-function startOfDay(d: Date) {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+function startOfDayUTC(d: Date) {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
 }
-function endOfDay(d: Date) {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+function endOfDayUTC(d: Date) {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 23, 59, 59, 999));
+}
+function addDaysUTC(d: Date, days: number) {
+  const x = new Date(d.getTime());
+  x.setUTCDate(x.getUTCDate() + days);
+  return x;
+}
+function sameYmdUTC(a: Date, b: Date) {
+  return a.getUTCFullYear() === b.getUTCFullYear()
+      && a.getUTCMonth() === b.getUTCMonth()
+      && a.getUTCDate() === b.getUTCDate();
 }
 
-/** Conflictos: tareas por hora y leaves aprobadas por DÍA (rango inclusivo) */
+/* =========================
+ * Conflictos (tareas por hora + leaves aprobadas por día)
+ * ========================= */
 async function getConflictsByDay(workerIds: string[], taskStart: Date, taskEnd: Date) {
-  const dayStart = startOfDay(taskStart);
-  const dayEnd   = endOfDay(taskEnd);
+  const dayStart = startOfDayUTC(taskStart);
+  const dayEnd   = endOfDayUTC(taskEnd);
 
-  // Tareas solapadas (comparación por hora)
+  // Tareas que se solapan por horas
   const tasks = await prisma.task.findMany({
     where: {
       startTime: { lte: taskEnd },
@@ -39,7 +54,7 @@ async function getConflictsByDay(workerIds: string[], taskStart: Date, taskEnd: 
     orderBy: { startTime: 'asc' },
   });
 
-  // Leaves aprobadas de día completo (comparación por fechas)
+  // Leaves aprobadas que pisan el DÍA (independiente de la hora)
   const leaves = await prisma.leaveRequest.findMany({
     where: {
       status: 'aprobado',
@@ -57,15 +72,12 @@ async function getConflictsByDay(workerIds: string[], taskStart: Date, taskEnd: 
     orderBy: { startDate: 'asc' },
   });
 
-  const byWorker: Record<
-    string,
-    {
-      workerId: string;
-      workerName?: string;
-      tasks: { id: string; name: string; taskTypeName?: string; startTime: string; endTime: string }[];
-      leaves: { id: string; type: string; startDate: string; endDate: string }[];
-    }
-  > = {};
+  const byWorker: Record<string, {
+    workerId: string;
+    workerName?: string;
+    tasks: { id: string; name: string; taskTypeName?: string; startTime: string; endTime: string }[];
+    leaves: { id: string; type: string; startDate: string; endDate: string }[];
+  }> = {};
 
   for (const t of tasks) {
     for (const w of t.workers) {
@@ -96,6 +108,56 @@ async function getConflictsByDay(workerIds: string[], taskStart: Date, taskEnd: 
   return Object.values(byWorker);
 }
 
+/* =========================
+ * Repetición semanal en UTC
+ * ========================= */
+function expandWeeklyOccurrencesUTC(params: {
+  baseDateUTC: Date;           // 00:00:00 UTC del día base
+  startHHmm: string;           // "HH:mm"
+  endHHmm: string;             // "HH:mm"
+  weekdays: number[];          // 0..6 (Dom..Sáb)
+  intervalWeeks: number;       // >=1
+  until?: Date | null;         // inclusive (UTC)
+  count?: number | null;       // límite de ocurrencias
+}) {
+  const { baseDateUTC, startHHmm, endHHmm, weekdays, intervalWeeks, until, count } = params;
+  const [sh, sm] = startHHmm.split(':').map(Number);
+  const [eh, em] = endHHmm.split(':').map(Number);
+
+  const results: { start: Date; end: Date; ymd: string; weekday: number }[] = [];
+  if (!Array.isArray(weekdays) || weekdays.length === 0) return results;
+
+  let occurrences = 0;
+
+  // Posicionar cursor al LUNES de la semana del baseDateUTC (en UTC)
+  const wdBase = baseDateUTC.getUTCDay();         // 0..6 (Dom..Sáb)
+  const diffToMonday = (wdBase + 6) % 7;          // días hacia atrás hasta lunes
+  let cursorWeekStart = addDaysUTC(startOfDayUTC(baseDateUTC), -diffToMonday);
+
+  while (true) {
+    for (const wd of weekdays) {
+      const candidate = addDaysUTC(cursorWeekStart, wd); // wd ya es 0..6 (Dom..Sáb)
+      const s = new Date(candidate); s.setUTCHours(sh, sm, 0, 0);
+      const e = new Date(candidate); e.setUTCHours(eh, em, 0, 0);
+
+      // Cortar por 'until'
+      if (until && startOfDayUTC(s) > endOfDayUTC(until)) return results;
+
+      const ymd = `${s.getUTCFullYear()}-${pad2(s.getUTCMonth()+1)}-${pad2(s.getUTCDate())}`;
+      results.push({ start: s, end: e, ymd, weekday: wd });
+      occurrences++;
+      if (count && occurrences >= count) return results;
+    }
+    cursorWeekStart = addDaysUTC(cursorWeekStart, 7 * intervalWeeks);
+    if (results.length > 5000) break; // safety
+  }
+
+  return results;
+}
+
+/* =========================
+ * Handler
+ * ========================= */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).json({ message: 'Method not allowed' });
 
@@ -114,97 +176,127 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const taskTypeId: string = body.taskTypeId;
     const description: string | undefined = body.description ?? body.observations;
 
-    // Formato 1: date + start + end (HH:mm)
-    const dateStr: string | undefined  = body.date;
-    const startStr: string | undefined = body.start;
-    const endStr: string | undefined   = body.end;
+    const dateStr: string | undefined  = body.date;   // YYYY-MM-DD
+    const startStr: string | undefined = body.start;  // HH:mm
+    const endStr: string | undefined   = body.end;    // HH:mm
 
-    // Formato 2: startISO + endISO (ISO completos)
-    const startISO: string | undefined = body.startISO;
-    const endISO: string | undefined   = body.endISO;
+    const repeat: boolean = !!body.repeat;
+    const weekdays: number[] = Array.isArray(body.weekdays) ? body.weekdays : [];
+    const intervalWeeks: number = Math.max(1, Number(body.intervalWeeks || 1));
+    const untilStr: string | undefined = body.until;
+    const count: number | null = body.count ? Math.max(1, Number(body.count)) : null;
 
-    const workerIds: string[] = Array.isArray(body.workerIds) ? body.workerIds : [];
+    const assignAllQualified: boolean = !!body.assignAllQualified;
+
+    let workerIds: string[] = Array.isArray(body.workerIds) ? body.workerIds : [];
     const force: boolean = body?.force === true || body?.force === 'true';
 
-    // Validaciones básicas
     if (!title)      return res.status(400).json({ message: 'Falta título' });
     if (!taskTypeId) return res.status(400).json({ message: 'Falta taskTypeId' });
+
+    if (assignAllQualified) {
+      const tt = await prisma.taskType.findUnique({
+        where: { id: taskTypeId },
+        select: { qualifiedWorkers: { select: { id: true } } },
+      });
+      const allQualified = (tt?.qualifiedWorkers || []).map(w => w.id);
+      workerIds = Array.from(new Set([ ...allQualified, ...workerIds ]));
+    }
     if (!Array.isArray(workerIds) || workerIds.length === 0) {
-      return res.status(400).json({ message: 'Debes seleccionar al menos un trabajador' });
+      return res.status(400).json({ message: 'Debes seleccionar al menos un trabajador (o activar "asignar a todos los cualificados")' });
     }
 
-    // Construir fechas según formato recibido
-    let finalStart: Date | null = null;
-    let finalEnd: Date | null   = null;
+    if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      return res.status(400).json({ message: 'date debe ser YYYY-MM-DD' });
+    }
+    if (!startStr || !/^\d{2}:\d{2}$/.test(startStr) || !endStr || !/^\d{2}:\d{2}$/.test(endStr)) {
+      return res.status(400).json({ message: 'start/end deben ser HH:mm' });
+    }
 
-    if (dateStr && startStr && endStr) {
-      // date + HH:mm
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-        return res.status(400).json({ message: 'date debe ser YYYY-MM-DD' });
-      }
-      if (!/^\d{2}:\d{2}$/.test(startStr) || !/^\d{2}:\d{2}$/.test(endStr)) {
-        return res.status(400).json({ message: 'start/end deben ser HH:mm' });
-      }
-      finalStart = new Date(`${dateStr}T${startStr}:00`);
-      finalEnd   = new Date(`${dateStr}T${endStr}:00`);
-    } else if (startISO && endISO) {
-      // ISO completos
-      const s = toDateSafe(startISO);
-      const e = toDateSafe(endISO);
-      if (!s || !e) return res.status(400).json({ message: 'Proporciona startISO y endISO válidos' });
-      finalStart = s;
-      finalEnd   = e;
+    // Expandir ocurrencias en UTC
+    let occurrences: { start: Date; end: Date; ymd: string; weekday: number }[] = [];
+    if (!repeat) {
+      const s = parseYmdHhmmAsUTC(dateStr, startStr);
+      const e = parseYmdHhmmAsUTC(dateStr, endStr);
+      occurrences = [{ start: s, end: e, ymd: dateStr, weekday: s.getUTCDay() }];
     } else {
-      // ni (date+HH:mm) ni (ISO)
-      return res.status(400).json({ message: 'Proporciona (date,start,end) o (startISO,endISO)' });
-    }
-
-    if (!finalStart || !finalEnd || isNaN(finalStart.getTime()) || isNaN(finalEnd.getTime())) {
-      return res.status(400).json({ message: 'Fechas inválidas' });
-    }
-    if (finalStart >= finalEnd) {
-      return res.status(400).json({ message: 'El fin debe ser posterior al inicio' });
-    }
-
-    // Conflictos (si no se fuerza)
-    if (!force) {
-      const conflicts = await getConflictsByDay(workerIds, finalStart, finalEnd);
-      const hasConflicts = conflicts.some(c => c.tasks.length > 0 || c.leaves.length > 0);
-      if (hasConflicts) {
-        return res.status(409).json({ success: false, error: 'Conflictos de agenda', conflicts });
+      const baseUTC = parseYmdHhmmAsUTC(dateStr, '00:00');
+      const untilUTC = untilStr ? parseYmdHhmmAsUTC(untilStr, '23:59') : null;
+      occurrences = expandWeeklyOccurrencesUTC({
+        baseDateUTC: baseUTC,
+        startHHmm: startStr,
+        endHHmm: endStr,
+        weekdays,
+        intervalWeeks,
+        until: untilUTC,
+        count
+      });
+      if (occurrences.length === 0) {
+        return res.status(400).json({ message: 'Configura al menos una ocurrencia válida (días/intervalo/hasta o nº)' });
       }
     }
 
-    // Crear
-    const created = await prisma.task.create({
-      data: {
-        name: title,
-        observations: description ?? null,
-        taskType: { connect: { id: taskTypeId } },
-        startTime: finalStart,
-        endTime: finalEnd,
-        workers: { connect: workerIds.map(id => ({ id })) },
-      },
-      include: {
-        workers: { select: { id: true, username: true } },
-        taskType: { select: { id: true, name: true, color: true } },
-      },
-    });
+    for (const occ of occurrences) {
+      if (isNaN(occ.start.getTime()) || isNaN(occ.end.getTime())) {
+        return res.status(400).json({ message: `Fecha inválida en la ocurrencia ${occ.ymd}` });
+      }
+      if (occ.start >= occ.end) {
+        return res.status(400).json({ message: `El fin debe ser posterior al inicio en la ocurrencia ${occ.ymd}` });
+      }
+    }
+
+    // Conflictos (solo si NO force)
+    if (!force) {
+      const allConflicts: any[] = [];
+      for (const occ of occurrences) {
+        const conflicts = await getConflictsByDay(workerIds, occ.start, occ.end);
+        const has = conflicts.some(c => c.tasks.length > 0 || c.leaves.length > 0);
+        if (has) allConflicts.push({ ymd: occ.ymd, start: occ.start, end: occ.end, conflicts });
+      }
+      if (allConflicts.length > 0) {
+        return res.status(409).json({
+          success: false,
+          error: 'Conflictos de agenda en una o más ocurrencias',
+          conflictsByOccurrence: allConflicts,
+        });
+      }
+    }
+
+    // Crear todas las ocurrencias
+    const created = [];
+    for (const occ of occurrences) {
+      const row = await prisma.task.create({
+        data: {
+          name: title,
+          observations: description ?? null,
+          taskType: { connect: { id: taskTypeId } },
+          startTime: occ.start,
+          endTime: occ.end,
+          workers: { connect: workerIds.map(id => ({ id })) },
+        },
+        include: {
+          workers: { select: { id: true, username: true } },
+          taskType: { select: { id: true, name: true, color: true } },
+        },
+      });
+      created.push(row);
+    }
 
     return res.status(201).json({
       success: true,
-      task: {
-        id: created.id,
-        title: created.name,
-        description: created.observations,
-        start: created.startTime,
-        end: created.endTime,
-        taskTypeId: created.taskTypeId,
-        taskTypeName: created.taskType?.name,
-        taskTypeColor: created.taskType?.color,
-        workers: created.workers,
-        workerIds: created.workers.map(w => w.id),
-      },
+      count: created.length,
+      tasks: created.map(t => ({
+        id: t.id,
+        title: t.name,
+        description: t.observations,
+        start: t.startTime,
+        end: t.endTime,
+        taskTypeId: t.taskTypeId,
+        taskTypeName: t.taskType?.name,
+        taskTypeColor: t.taskType?.color,
+        workers: t.workers,
+        workerIds: t.workers.map(w => w.id),
+      })),
     });
   } catch (e: any) {
     console.error('POST /api/tasks/create', e);

@@ -3,28 +3,38 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import { prisma } from '@/lib/prisma';
 
-function startOfDay(d: Date) {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+/* =========================
+ * Utils UTC
+ * ========================= */
+function pad2(n: number) { return String(n).padStart(2, '0'); }
+function parseYmdHhmmAsUTC(ymd: string, hhmm: string): Date {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const [h, min] = hhmm.split(':').map(Number);
+  return new Date(Date.UTC(y, m - 1, d, h, min, 0, 0));
 }
-function endOfDay(d: Date) {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+function toDateSafe(v?: string): Date | null {
+  if (!v) return null;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? null : d;
 }
 
-async function getConflictsEditByDay(params: {
+/* =========================
+ * Conflictos para edición (excluye la propia tarea)
+ * ========================= */
+async function getConflicts(params: {
   taskId: string;
   workerIds: string[];
   start: Date;
   end: Date;
 }) {
   const { taskId, workerIds, start, end } = params;
-  const dayStart = startOfDay(start);
-  const dayEnd = endOfDay(end);
 
+  // Tareas que se solapan (excluyendo la actual)
   const tasks = await prisma.task.findMany({
     where: {
       id: { not: taskId },
-      startTime: { lte: end },
-      endTime: { gte: start },
+      startTime: { lt: end },
+      endTime:   { gt: start },
       workers: { some: { id: { in: workerIds } } },
     },
     select: {
@@ -38,12 +48,13 @@ async function getConflictsEditByDay(params: {
     orderBy: { startTime: 'asc' },
   });
 
+  // Leaves aprobadas (día completo)
   const leaves = await prisma.leaveRequest.findMany({
     where: {
       status: 'aprobado',
-      startDate: { lte: dayEnd },
-      endDate: { gte: dayStart },
-      workerId: { in: workerIds },
+      startDate: { lte: end },
+      endDate:   { gte: start },
+      workerId:  { in: workerIds },
     },
     select: {
       id: true,
@@ -91,12 +102,16 @@ async function getConflictsEditByDay(params: {
   return Object.values(byWorker);
 }
 
+/* =========================
+ * Handler
+ * ========================= */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const session = await getServerSession(req, res, authOptions);
   if (!session) return res.status(401).json({ message: 'No autorizado' });
   const role = (session.user as any)?.role ?? 'empleado';
   const { id } = req.query as { id: string };
 
+  // === GET: cargar tarea para edición ===
   if (req.method === 'GET') {
     try {
       const task = await prisma.task.findUnique({
@@ -108,17 +123,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
       if (!task) return res.status(404).json({ message: 'Tarea no encontrada' });
 
+      const s = task.startTime;
+      const e = task.endTime;
+
       return res.status(200).json({
         success: true,
         task: {
           id: task.id,
           title: task.name,
           description: task.observations,
-          start: task.startTime,
-          end: task.endTime,
-          date: task.startTime.toISOString().slice(0, 10),
-          startTimeHHmm: task.startTime.toISOString().slice(11, 16),
-          endTimeHHmm: task.endTime.toISOString().slice(11, 16),
+          start: s,
+          end: e,
+          date: `${s.getUTCFullYear()}-${pad2(s.getUTCMonth()+1)}-${pad2(s.getUTCDate())}`,
+          startTimeHHmm: `${pad2(s.getUTCHours())}:${pad2(s.getUTCMinutes())}`,
+          endTimeHHmm: `${pad2(e.getUTCHours())}:${pad2(e.getUTCMinutes())}`,
           taskTypeId: task.taskTypeId,
           taskTypeName: task.taskType?.name,
           taskTypeColor: task.taskType?.color,
@@ -133,6 +151,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
   }
 
+  // === PATCH: actualizar con detección de conflictos (leaves por día) ===
   if (req.method === 'PATCH') {
     if (!['admin', 'supervisor'].includes(role)) {
       return res.status(403).json({ message: 'Acceso denegado' });
@@ -145,14 +164,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
       if (!current) return res.status(404).json({ message: 'Tarea no encontrada' });
 
-      const { title, description, taskTypeId, date, start, end, workerIds, force } = req.body;
+      const body = req.body ?? {};
+      const title: string | undefined = body.title ?? body.name;
+      const description: string | undefined = body.description ?? body.observations;
+      const taskTypeId: string | undefined = body.taskTypeId;
+      const dateStr: string | undefined = body.date;   // YYYY-MM-DD
+      const startStr: string | undefined = body.start; // HH:mm o ISO
+      const endStr: string | undefined = body.end;     // HH:mm o ISO
+      const workerIdsBody: string[] | undefined = body.workerIds;
+      const force: boolean = !!body.force;
 
+      // Construir fechas en UTC
       let finalStart: Date = current.startTime;
       let finalEnd: Date = current.endTime;
 
-      if (date && start && end && /^\d{2}:\d{2}$/.test(start) && /^\d{2}:\d{2}$/.test(end)) {
-        finalStart = new Date(`${date}T${start}:00`);
-        finalEnd = new Date(`${date}T${end}:00`);
+      if (dateStr && startStr && endStr && /^\d{2}:\d{2}$/.test(startStr) && /^\d{2}:\d{2}$/.test(endStr)) {
+        finalStart = parseYmdHhmmAsUTC(dateStr, startStr);
+        finalEnd   = parseYmdHhmmAsUTC(dateStr, endStr);
+      } else {
+        const sISO = toDateSafe(startStr);
+        const eISO = toDateSafe(endStr);
+        if (sISO) finalStart = sISO;
+        if (eISO) finalEnd   = eISO;
       }
 
       if (isNaN(finalStart.getTime()) || isNaN(finalEnd.getTime())) {
@@ -162,10 +195,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ message: 'El fin debe ser posterior al inicio' });
       }
 
-      const finalWorkerIds = Array.isArray(workerIds) && workerIds.length > 0 ? workerIds : current.workers.map(w => w.id);
+      const finalWorkerIds =
+        Array.isArray(workerIdsBody) && workerIdsBody.length > 0
+          ? workerIdsBody
+          : current.workers.map(w => w.id);
 
+      // Conflictos (si NO force)
       if (!force && finalWorkerIds.length > 0) {
-        const conflicts = await getConflictsEditByDay({
+        const conflicts = await getConflicts({
           taskId: id,
           workerIds: finalWorkerIds,
           start: finalStart,
@@ -177,6 +214,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
       }
 
+      // Actualizar
       const updated = await prisma.task.update({
         where: { id },
         data: {
@@ -196,13 +234,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         },
       });
 
-      return res.status(200).json({ success: true, task: updated });
+      return res.status(200).json({
+        success: true,
+        task: {
+          id: updated.id,
+          title: updated.name,
+          description: updated.observations,
+          start: updated.startTime,
+          end: updated.endTime,
+          taskTypeId: updated.taskTypeId,
+          taskTypeName: updated.taskType?.name,
+          taskTypeColor: updated.taskType?.color,
+          isCompleted: !!updated.isCompleted,
+          workers: updated.workers,
+          workerIds: updated.workers.map(w => w.id),
+        },
+      });
     } catch (e: any) {
       console.error('PATCH /api/tasks/[id]', e);
       return res.status(500).json({ message: 'Error interno', detail: e?.message });
     }
   }
 
+  // === DELETE ===
   if (req.method === 'DELETE') {
     if (!['admin', 'supervisor'].includes(role)) {
       return res.status(403).json({ message: 'Acceso denegado' });
