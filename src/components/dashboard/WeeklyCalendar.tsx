@@ -16,11 +16,14 @@ type CalendarEvent = {
     kind?: 'leave' | 'task';
     worker?: { id: string; username?: string; email?: string };
     workers?: Array<{ id: string; username?: string }>;
+    taskTypeId?: string;
+    taskTypeName?: string;
     [k: string]: any;
   };
 };
 
 type Worker = { id: string; username: string };
+type TaskType = { id: string; name: string; color?: string | null };
 
 type WeeklyCalendarProps = {
   defaultWorkerId?: string;
@@ -57,6 +60,14 @@ function sameDay(a: Date, b: Date) {
   return a.getFullYear() === b.getFullYear() &&
          a.getMonth() === b.getMonth() &&
          a.getDate() === b.getDate();
+}
+function isToday(d: Date) {
+  const now = new Date();
+  return sameDay(d, now);
+}
+function isWeekend(d: Date) {
+  const n = d.getDay(); // 0 dom, 6 sáb
+  return n === 0 || n === 6;
 }
 function coerceArray<T = any>(payload: any, keyOrder: string[] = ['events', 'data', 'items']): T[] {
   if (Array.isArray(payload)) return payload as T[];
@@ -129,15 +140,18 @@ export default function WeeklyCalendar({
   lockToWorker = false,
   onRangeChange,
 }: WeeklyCalendarProps) {
-  // ⬇️ Inicial: si NO está bloqueado, empezamos con "Todos" (''), así admin/supervisor ven todo
+  // Estado
   const [workerId, setWorkerId] = useState<string>(() => (lockToWorker ? defaultWorkerId : ''));
+  const [taskTypeId, setTaskTypeId] = useState<string>(''); // filtro
   const [currentMonday, setCurrentMonday] = useState(() => startOfWeek(new Date()));
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [workers, setWorkers] = useState<Worker[]>([]);
+  const [taskTypes, setTaskTypes] = useState<TaskType[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [err, setErr] = useState<string>('');
+  const [nowY, setNowY] = useState<number | null>(null); // posición de la línea “now” en px
 
-  // Si está bloqueado al usuario (empleado), sincroniza cualquier cambio de defaultWorkerId.
+  // Sincroniza bloqueo por trabajador
   useEffect(() => {
     if (lockToWorker && defaultWorkerId && defaultWorkerId !== workerId) {
       setWorkerId(defaultWorkerId);
@@ -164,7 +178,7 @@ export default function WeeklyCalendar({
     return d.toISOString().slice(0, 10);
   }, [currentMonday]);
 
-  // Notificar al padre (opcional)
+  // Notificar al padre
   useEffect(() => {
     onRangeChange?.({
       start: new Date(weekStartISO + 'T00:00:00'),
@@ -172,6 +186,7 @@ export default function WeeklyCalendar({
     });
   }, [weekStartISO, weekEndISO, onRangeChange]);
 
+  // Carga de eventos con filtros (worker + taskType)
   useEffect(() => {
     const run = async () => {
       try {
@@ -180,8 +195,8 @@ export default function WeeklyCalendar({
         const url = new URL('/api/calendar/events', window.location.origin);
         url.searchParams.set('start', weekStartISO);
         url.searchParams.set('end', weekEndISO);
-        // Solo enviamos workerId si hay uno seleccionado (empleado bloqueado o admin que elige uno)
         if (workerId) url.searchParams.set('workerId', workerId);
+        if (taskTypeId) url.searchParams.set('taskTypeId', taskTypeId);
 
         const r = await fetch(url.toString(), { cache: 'no-store' });
         const j = await r.json();
@@ -198,6 +213,7 @@ export default function WeeklyCalendar({
             ev.extendedProps?.kind === 'task'
               ? ev.extendedProps?.workers?.[0]?.id ?? null
               : ev.extendedProps?.worker?.id ?? null,
+          taskTypeId: ev.extendedProps?.taskTypeId ?? null,
           extendedProps: ev.extendedProps,
         }));
 
@@ -205,10 +221,13 @@ export default function WeeklyCalendar({
         const weekEnd = new Date(weekEndISO + 'T23:59:59');
         const expanded = normalized.flatMap(ev => expandEventByDay(ev, weekStart, weekEnd));
 
-        // Si hay workerId seleccionado, filtramos; si no, mostramos todo (admin/supervisor)
-        const filtered = workerId ? expanded.filter(ev => ev.workerId === workerId) : expanded;
+        // Filtros locales
+        const byWorker = workerId ? expanded.filter(ev => ev.workerId === workerId) : expanded;
+        const byType = taskTypeId
+          ? byWorker.filter(ev => ev.taskTypeId === taskTypeId || ev.extendedProps?.taskTypeId === taskTypeId)
+          : byWorker;
 
-        setEvents(filtered);
+        setEvents(byType);
       } catch (e: any) {
         console.error('WeeklyCalendar: error cargando eventos', e);
         setErr(e?.message || 'Error cargando eventos');
@@ -218,19 +237,27 @@ export default function WeeklyCalendar({
       }
     };
     run();
-  }, [weekStartISO, weekEndISO, workerId]);
+  }, [weekStartISO, weekEndISO, workerId, taskTypeId]);
 
+  // Carga catálogos (workers, tipos de tarea)
   useEffect(() => {
-    if (lockToWorker) return;
+    if (!lockToWorker) {
+      (async () => {
+        try {
+          const res = await fetch('/api/workers', { cache: 'no-store' });
+          const data = await res.json().catch(() => []);
+          const arr = Array.isArray(data) ? data : coerceArray(data);
+          setWorkers(arr.map((w: any) => ({ id: w.id, username: w.username })));
+        } catch { setWorkers([]); }
+      })();
+    }
     (async () => {
       try {
-        const res = await fetch('/api/workers', { cache: 'no-store' });
+        const res = await fetch('/api/taskTypes', { cache: 'no-store' });
         const data = await res.json().catch(() => []);
         const arr = Array.isArray(data) ? data : coerceArray(data);
-        setWorkers(arr.map((w: any) => ({ id: w.id, username: w.username })));
-      } catch {
-        setWorkers([]);
-      }
+        setTaskTypes(arr.map((t: any) => ({ id: t.id, name: t.name, color: t.color ?? null })));
+      } catch { setTaskTypes([]); }
     })();
   }, [lockToWorker]);
 
@@ -263,148 +290,262 @@ export default function WeeklyCalendar({
     return Math.min(TOTAL_HEIGHT - top, h);
   };
 
+  // Línea “now” (solo cuando hoy está dentro de la vista semanal)
+  useEffect(() => {
+    const today = new Date();
+    const isInRange =
+      new Date(weekStartISO) <= today &&
+      today <= new Date(new Date(weekEndISO).toISOString().slice(0,10) + 'T23:59:59');
+
+    if (!isInRange) {
+      setNowY(null);
+      return;
+    }
+    const tick = () => {
+      const h = today.getHours();
+      const m = today.getMinutes();
+      const y = topPxFromDate(new Date(2000, 0, 1, h, m, 0)); // solo para calcular
+      setNowY(y);
+    };
+    tick();
+    const id = setInterval(() => {
+      const t = new Date();
+      const y = topPxFromDate(t);
+      setNowY(y);
+    }, 60000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekStartISO, weekEndISO]);
+
+  // Colores leyenda para leaves (coinciden con /api)
+  const leaveColors: Record<string, string> = {
+    baja: '#ef4444',
+    vacaciones: '#10b981',
+    permiso: '#6366f1',
+  };
+
   return (
     <div className="w-full">
-      {/* Controles */}
-      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setCurrentMonday(prev => { const d = new Date(prev); d.setDate(d.getDate() - 7); return startOfWeek(d); })}
-            className="px-3 py-2 rounded-xl border shadow-sm hover:bg-gray-50"
-          >
-            ◀ Semana anterior
-          </button>
-          <button
-            onClick={() => setCurrentMonday(startOfWeek(new Date()))}
-            className="px-3 py-2 rounded-xl border shadow-sm hover:bg-gray-50"
-          >
-            Hoy
-          </button>
-          <button
-            onClick={() => setCurrentMonday(prev => { const d = new Date(prev); d.setDate(d.getDate() + 7); return startOfWeek(d); })}
-            className="px-3 py-2 rounded-xl border shadow-sm hover:bg-gray-50"
-          >
-            Semana siguiente ▶
-          </button>
-        </div>
-
-        {!lockToWorker ? (
+      {/* Wrapper como tarjeta */}
+      <div className="rounded-2xl border bg-white shadow-sm ring-1 ring-black/5 overflow-hidden">
+        {/* Controles */}
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between p-4 border-b bg-gradient-to-b from-white to-gray-50">
           <div className="flex items-center gap-2">
-            <label className="text-sm text-gray-600">Trabajador:</label>
-            <select
-              className="px-3 py-2 rounded-xl border shadow-sm"
-              value={workerId}
-              onChange={e => setWorkerId(e.target.value)}
+            <button
+              onClick={() => setCurrentMonday(prev => { const d = new Date(prev); d.setDate(d.getDate() - 7); return startOfWeek(d); })}
+              className="px-3 py-2 rounded-full border shadow-sm hover:bg-gray-50 active:scale-[0.98] transition"
+              title="Semana anterior"
             >
-              <option value="">Todos</option>
-              {workers.map(w => (
-                <option key={w.id} value={w.id}>{w.username}</option>
-              ))}
-            </select>
+              ◀
+            </button>
+            <button
+              onClick={() => setCurrentMonday(startOfWeek(new Date()))}
+              className="px-3 py-2 rounded-full border shadow-sm hover:bg-gray-50 active:scale-[0.98] transition"
+              title="Ir a hoy"
+            >
+              Hoy
+            </button>
+            <button
+              onClick={() => setCurrentMonday(prev => { const d = new Date(prev); d.setDate(d.getDate() + 7); return startOfWeek(d); })}
+              className="px-3 py-2 rounded-full border shadow-sm hover:bg-gray-50 active:scale-[0.98] transition"
+              title="Semana siguiente"
+            >
+              ▶
+            </button>
+            <div className="ml-2 text-sm text-gray-600">
+              Semana del <span className="font-semibold">{fmtDay(weekDays[0])}</span> al <span className="font-semibold">{fmtDay(weekDays[6])}</span>
+            </div>
           </div>
-        ) : (
-          <div className="text-sm text-gray-600">Filtrado por <span className="font-semibold">mi calendario</span></div>
-        )}
-      </div>
 
-      {/* Cabecera semana */}
-      <div className="mb-2 text-sm text-gray-600">
-        Semana del <strong>{fmtDay(weekDays[0])}</strong> al <strong>{fmtDay(weekDays[6])}</strong>
-      </div>
+          <div className="flex flex-wrap items-center gap-3">
+            {!lockToWorker ? (
+              <label className="flex items-center gap-2 text-sm">
+                <span className="text-gray-600">Trabajador</span>
+                <select
+                  className="px-3 py-2 rounded-xl border shadow-sm bg-white"
+                  value={workerId}
+                  onChange={e => setWorkerId(e.target.value)}
+                >
+                  <option value="">Todos</option>
+                  {workers.map(w => (
+                    <option key={w.id} value={w.id}>{w.username}</option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <span className="text-sm text-gray-600">Filtrado por <span className="font-semibold">mi calendario</span></span>
+            )}
 
-      {/* ===== Fila “Todo el día” (ausencias y eventos allDay) ===== */}
-      <div
-        className="grid border rounded-t-2xl"
-        style={{ gridTemplateColumns: '64px repeat(7, 1fr)' }}
-      >
-        <div className="bg-gray-50 border-r p-2 text-xs font-medium text-gray-500">
-          Todo el día
+            <label className="flex items-center gap-2 text-sm">
+              <span className="text-gray-600">Tipo de tarea</span>
+              <select
+                className="px-3 py-2 rounded-xl border shadow-sm bg-white"
+                value={taskTypeId}
+                onChange={e => setTaskTypeId(e.target.value)}
+              >
+                <option value="">Todos</option>
+                {taskTypes.map(tt => (
+                  <option key={tt.id} value={tt.id}>{tt.name}</option>
+                ))}
+              </select>
+            </label>
+          </div>
         </div>
-        {weekDays.map((d, idx) => {
-          const { allDay } = ofDay(d);
-          return (
-            <div key={idx} className="border-l p-2 flex flex-col gap-2 min-h-[40px] bg-white">
-              {allDay.length === 0 ? (
-                <div className="text-[11px] text-gray-400">—</div>
-              ) : (
-                allDay.map(ev => {
-                  const col = ev.color || '#6b7280';
-                  const bg = hexToRgba(col, 0.22);
+
+        {/* ===== Fila “Todo el día” (ausencias y eventos allDay) ===== */}
+        <div
+          className="grid"
+          style={{ gridTemplateColumns: '64px repeat(7, 1fr)' }}
+        >
+          <div className="bg-gray-50 border-t border-b p-2 text-xs font-medium text-gray-500 flex items-center justify-center">
+            Todo el día
+          </div>
+          {weekDays.map((d, idx) => {
+            const dayIsToday = isToday(d);
+            const { allDay } = ofDay(d);
+            return (
+              <div
+                key={idx}
+                className={
+                  'border-l border-t border-b p-2 flex flex-col gap-2 min-h-[44px] ' +
+                  (dayIsToday ? 'bg-blue-50/40' : 'bg-white')
+                }
+              >
+                {allDay.length === 0 ? (
+                  <div className="text-[11px] text-gray-400">—</div>
+                ) : (
+                  allDay.map(ev => {
+                    const baseColor =
+                      ev.extendedProps?.kind === 'leave'
+                        ? leaveColors[ev.extendedProps?.type ?? ''] ?? ev.color ?? '#6b7280'
+                        : ev.color || '#6b7280';
+                    const bg = hexToRgba(baseColor, 0.22);
+                    return (
+                      <div
+                        key={ev.id}
+                        className="px-2 py-1 rounded-md border text-xs shadow-sm hover:shadow transition truncate"
+                        style={{ borderColor: baseColor, backgroundColor: bg }}
+                        title={ev.title}
+                      >
+                        <span className="font-medium">{ev.title}</span>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* ===== Grid horario 07:00–19:00 ===== */}
+        <div
+          className="grid border-t"
+          style={{ gridTemplateColumns: '64px repeat(7, 1fr)' }}
+        >
+          {/* Gutter horas */}
+          <div className="relative border-r bg-white" style={{ height: TOTAL_HEIGHT, minHeight: TOTAL_HEIGHT }}>
+            <div
+              className="absolute inset-0"
+              style={{ backgroundImage: `repeating-linear-gradient(to bottom, #e5e7eb 0, #e5e7eb 1px, transparent 1px, transparent ${SLOT_PX}px)` }}
+            />
+            {hourSlots.map((h, i) => (
+              <div key={h} className="absolute right-2 text-[11px] text-gray-500 select-none" style={{ top: i * SLOT_PX + 6 }}>
+                {String(h).padStart(2, '0')}:00
+              </div>
+            ))}
+          </div>
+
+          {/* Columnas por día */}
+          {weekDays.map((day, idx) => {
+            const { timed } = ofDay(day);
+            const dayIsToday = isToday(day);
+            const weekend = isWeekend(day);
+
+            return (
+              <div
+                key={idx}
+                className={
+                  'relative border-l ' +
+                  (weekend ? 'bg-gray-50' : 'bg-white')
+                }
+                style={{ height: TOTAL_HEIGHT, minHeight: TOTAL_HEIGHT }}
+              >
+                {/* fondo de líneas */}
+                <div
+                  className="absolute inset-0"
+                  style={{ backgroundImage: `repeating-linear-gradient(to bottom, #f3f4f6 0, #f3f4f6 1px, transparent 1px, transparent ${SLOT_PX}px)` }}
+                />
+                {/* resaltado de hoy */}
+                {dayIsToday && (
+                  <div className="absolute inset-0 bg-blue-50/40 pointer-events-none" />
+                )}
+
+                {/* eventos con hora */}
+                {timed.map(ev => {
+                  const s = new Date(ev.start);
+                  const e = new Date(ev.end);
+                  const col = ev.color || '#3b82f6';
+                  const bg  = hexToRgba(col, 0.18);
+                  const top = topPxFromDate(s);
+                  const height = heightPxFromRange(s, e);
                   return (
                     <div
                       key={ev.id}
-                      className="px-2 py-1 rounded-md border text-xs"
-                      style={{ borderColor: col, backgroundColor: bg }}
+                      className="absolute left-1 right-1 rounded-xl border bg-white shadow-sm p-2 text-xs pointer-events-auto hover:shadow-md transition"
+                      style={{ top, height, borderColor: col, backgroundColor: bg }}
                       title={ev.title}
                     >
-                      {ev.title}
+                      <div className="font-semibold truncate">{ev.title}</div>
+                      <div className="text-[11px] text-gray-600">
+                        {s.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })} – {e.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                      </div>
                     </div>
                   );
-                })
-              )}
-            </div>
-          );
-        })}
-      </div>
+                })}
 
-      {/* ===== Grid horario 07:00–19:00 ===== */}
-      <div
-        className="grid border-x border-b rounded-b-2xl"
-        style={{ gridTemplateColumns: '64px repeat(7, 1fr)' }}
-      >
-        {/* Gutter de horas */}
-        <div className="relative border-r bg-white" style={{ height: TOTAL_HEIGHT, minHeight: TOTAL_HEIGHT }}>
-          <div
-            className="absolute inset-0"
-            style={{ backgroundImage: `repeating-linear-gradient(to bottom, #e5e7eb 0, #e5e7eb 1px, transparent 1px, transparent ${SLOT_PX}px)` }}
-          />
-          {hourSlots.map((h, i) => (
-            <div key={h} className="absolute right-1 text-xs text-gray-500" style={{ top: i * SLOT_PX + 6 }}>
-              {String(h).padStart(2, '0')}:00
-            </div>
-          ))}
-        </div>
-
-        {/* 7 columnas de día con eventos con hora */}
-        {weekDays.map((day, idx) => {
-          const { timed } = ofDay(day);
-          return (
-            <div key={idx} className="relative border-l bg-white" style={{ height: TOTAL_HEIGHT, minHeight: TOTAL_HEIGHT }}>
-              <div
-                className="absolute inset-0"
-                style={{ backgroundImage: `repeating-linear-gradient(to bottom, #f3f4f6 0, #f3f4f6 1px, transparent 1px, transparent ${SLOT_PX}px)` }}
-              />
-              {timed.map(ev => {
-                const s = new Date(ev.start);
-                const e = new Date(ev.end);
-                const col = ev.color || '#3b82f6';
-                const bg  = hexToRgba(col, 0.18);
-                const top = topPxFromDate(s);
-                const height = heightPxFromRange(s, e);
-                return (
+                {/* Línea de hora actual en la columna de hoy */}
+                {dayIsToday && nowY !== null && nowY >= 0 && nowY <= TOTAL_HEIGHT && (
                   <div
-                    key={ev.id}
-                    className="absolute left-1 right-1 rounded-xl border bg-white shadow-sm p-2 text-xs pointer-events-auto"
-                    style={{ top, height, borderColor: col, backgroundColor: bg }}
-                    title={ev.title}
+                    className="absolute left-0 right-0"
+                    style={{ top: nowY }}
                   >
-                    <div className="font-semibold truncate">{ev.title}</div>
-                    <div className="text-[11px] text-gray-600">
-                      {s.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })} – {e.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                    <div className="h-[2px] w-full bg-blue-500/80" />
+                    <div className="absolute -top-2 right-2 text-[10px] text-blue-700 bg-white/80 rounded px-1 shadow">
+                      Ahora
                     </div>
                   </div>
-                );
-              })}
-              {!loading && timed.length === 0 && (
-                <div className="absolute inset-x-2 top-2 text-[11px] text-gray-400">Sin tareas</div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+                )}
 
-      {loading && <div className="mt-2 text-sm text-gray-500">Cargando eventos…</div>}
-      {err && <div className="mt-2 text-sm text-red-600">{err}</div>}
+                {!loading && timed.length === 0 && (
+                  <div className="absolute inset-x-2 top-2 text-[11px] text-gray-400 select-none">Sin tareas</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Footer: estado, leyenda y conteo */}
+        <div className="flex flex-wrap items-center justify-between gap-3 p-3 border-t bg-white/70">
+          <div className="flex items-center gap-3 text-[11px] text-gray-600">
+            <span className="inline-flex items-center gap-1">
+              <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: leaveColors.baja }} />
+              Baja
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: leaveColors.vacaciones }} />
+              Vacaciones
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: leaveColors.permiso }} />
+              Permiso
+            </span>
+          </div>
+          <div className="text-[11px] text-gray-500">
+            {loading ? 'Cargando…' : `${events.length} eventos visibles`}
+            {err && <span className="ml-2 text-red-600">{err}</span>}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
