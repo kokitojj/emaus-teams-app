@@ -6,6 +6,8 @@ import { format, parse, startOfWeek, getDay } from 'date-fns';
 import { es } from 'date-fns/locale'; // <-- cambio: import nombrado
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 
+import { Locale } from 'date-fns';
+
 type CalendarEvent = {
   id: string;
   title: string;
@@ -15,7 +17,7 @@ type CalendarEvent = {
   resourceId?: string;
 };
 
-const locales = { es } as any;
+const locales: Record<string, Locale> = { es };
 const localizer = dateFnsLocalizer({
   format,
   parse,
@@ -30,6 +32,15 @@ const TASK_TYPE_COLORS: Record<string, string> = {
   Atención: '#3b82f6',
 };
 const taskTypeToColor = (name?: string) => (name ? TASK_TYPE_COLORS[name] ?? '#64748b' : '#64748b');
+
+interface RawCalendarEvent {
+  id: string;
+  title: string;
+  start: string;
+  end: string;
+  taskTypeName?: string;
+  resourceId?: string;
+}
 
 export default function WorkerCalendar({ workerId }: { workerId: string }) {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -48,7 +59,7 @@ export default function WorkerCalendar({ workerId }: { workerId: string }) {
     const res = await fetch(`/api/calendar/events?${params.toString()}`);
     const json = await res.json();
     setEvents(
-      (json.events ?? []).map((e: any) => ({
+      (json.events ?? []).map((e: RawCalendarEvent) => ({
         ...e,
         start: new Date(e.start),
         end: new Date(e.end),
@@ -63,7 +74,7 @@ export default function WorkerCalendar({ workerId }: { workerId: string }) {
     []
   );
 
-  const onRangeChange = useCallback((newRange: any) => {
+  const onRangeChange = useCallback((newRange: Date[] | { start: Date; end: Date }) => {
     if (Array.isArray(newRange)) {
       const start = newRange[0];
       const end = newRange[newRange.length - 1];
@@ -88,7 +99,7 @@ export default function WorkerCalendar({ workerId }: { workerId: string }) {
         endAccessor="end"
         defaultDate={defaultDate}
         onRangeChange={onRangeChange}
-        eventPropGetter={eventPropGetter as any}  // tipos a veces estrictos; opcional castear
+        eventPropGetter={eventPropGetter}
         messages={{ next: 'Sig.', previous: 'Ant.', today: 'Hoy', month: 'Mes', week: 'Semana', day: 'Día', agenda: 'Agenda' }}
         style={{ height: '80vh', borderRadius: 12 }}
       />

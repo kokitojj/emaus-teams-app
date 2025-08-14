@@ -18,7 +18,6 @@ type CalendarEvent = {
     workers?: Array<{ id: string; username?: string }>;
     taskTypeId?: string;
     taskTypeName?: string;
-    [k: string]: any;
   };
 };
 
@@ -69,10 +68,41 @@ function isWeekend(d: Date) {
   const n = d.getDay(); // 0 dom, 6 sáb
   return n === 0 || n === 6;
 }
-function coerceArray<T = any>(payload: any, keyOrder: string[] = ['events', 'data', 'items']): T[] {
+
+interface RawCalendarEvent {
+  id: string | number;
+  title?: string;
+  start: string;
+  end: string;
+  allDay?: boolean;
+  backgroundColor?: string;
+  borderColor?: string;
+  color?: string;
+  extendedProps?: {
+    kind?: 'leave' | 'task';
+    worker?: { id: string; username?: string; email?: string };
+    workers?: Array<{ id: string; username?: string }>;
+    taskTypeId?: string;
+    taskTypeName?: string;
+    type?: string;
+  };
+}
+
+interface RawWorker {
+  id: string;
+  username: string;
+}
+
+interface RawTaskType {
+  id: string;
+  name: string;
+  color?: string | null;
+}
+
+function coerceArray<T>(payload: unknown, keyOrder: string[] = ['events', 'data', 'items']): T[] {
   if (Array.isArray(payload)) return payload as T[];
   for (const k of keyOrder) {
-    if (payload && Array.isArray(payload[k])) return payload[k] as T[];
+    if (typeof payload === 'object' && payload !== null && k in payload && Array.isArray((payload as Record<string, any>)[k])) return (payload as Record<string, any>)[k] as T[];
   }
   return [];
 }

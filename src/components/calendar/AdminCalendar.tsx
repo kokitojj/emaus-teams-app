@@ -26,7 +26,9 @@ type CalendarResource = {
   resourceTitle: string;
 };
 
-const locales = { es } as any;
+import { Locale } from 'date-fns';
+
+const locales: Record<string, Locale> = { es };
 const localizer = dateFnsLocalizer({
   format,
   parse,
@@ -36,7 +38,7 @@ const localizer = dateFnsLocalizer({
 });
 
 // Tipamos el HOC con nuestros tipos de evento y recurso:
-const DnDCalendar = withDragAndDrop<CalendarEvent, CalendarResource>(RBC as any);
+const DnDCalendar = withDragAndDrop<CalendarEvent, CalendarResource>(RBC);
 
 const TASK_TYPE_COLORS: Record<string, string> = {
   Limpieza: '#22c55e',
@@ -44,6 +46,20 @@ const TASK_TYPE_COLORS: Record<string, string> = {
   Atención: '#3b82f6',
 };
 const taskTypeToColor = (name?: string) => (name ? TASK_TYPE_COLORS[name] ?? '#64748b' : '#64748b');
+
+interface RawCalendarEvent {
+  id: string;
+  title: string;
+  start: string;
+  end: string;
+  taskTypeName?: string;
+  resourceId?: string;
+}
+
+interface RawCalendarResource {
+  resourceId: string;
+  resourceTitle: string;
+}
 
 export default function AdminCalendar() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -62,7 +78,7 @@ export default function AdminCalendar() {
     ]);
 
     setEvents(
-      (evRes.events ?? []).map((e: any) => ({
+      (evRes.events ?? []).map((e: RawCalendarEvent) => ({
         ...e,
         start: new Date(e.start),
         end: new Date(e.end),
@@ -70,7 +86,7 @@ export default function AdminCalendar() {
     );
 
     setResources(
-      (resRes.resources ?? []).map((r: any) => ({
+      (resRes.resources ?? []).map((r: RawCalendarResource) => ({
         resourceId: r.resourceId,
         resourceTitle: r.resourceTitle,
       }))
@@ -84,7 +100,7 @@ export default function AdminCalendar() {
     []
   );
 
-  const onRangeChange = useCallback((newRange: any) => {
+  const onRangeChange = useCallback((newRange: Date[] | { start: Date; end: Date }) => {
     if (Array.isArray(newRange)) {
       const start = newRange[0];
       const end = newRange[newRange.length - 1];
@@ -96,8 +112,8 @@ export default function AdminCalendar() {
 
   const onEventResize = useCallback(
   async ({ event, start, end }: EventInteractionArgs<CalendarEvent>) => {
-    const s = start instanceof Date ? start : new Date(start as any);
-    const e = end   instanceof Date ? end   : new Date(end as any);
+    const s = start;
+    const e = end;
 
     const res = await fetch(`/api/calendar/events/${event.id}`, {
       method: 'PATCH',
@@ -113,16 +129,13 @@ export default function AdminCalendar() {
 // onEventDrop: misma idea; extraemos resourceId si viene
 const onEventDrop = useCallback(
   async (args: EventInteractionArgs<CalendarEvent>) => {
-    const { event } = args;
-    const start = (args as any).start;
-    const end = (args as any).end;
-    const resourceId = (args as any).resourceId as string | undefined;
+    const { event, start, end, resourceId } = args;
 
-    const s = start instanceof Date ? start : new Date(start);
-    const e = end   instanceof Date ? end   : new Date(end);
+    const s = start;
+    const e = end;
 
-    const body: any = { start: s.toISOString(), end: e.toISOString() };
-    if (resourceId) body.workerId = resourceId;
+    const body: Record<string, string | undefined> = { start: s.toISOString(), end: e.toISOString() };
+    if (resourceId) body.workerId = resourceId as string;
 
     const res = await fetch(`/api/calendar/events/${event.id}`, {
       method: 'PATCH',
@@ -130,7 +143,7 @@ const onEventDrop = useCallback(
       body: JSON.stringify(body),
     });
     if (res.ok) {
-      setEvents(prev => prev.map(ev => (ev.id === event.id ? { ...ev, start: s, end: e, resourceId } : ev)));
+      setEvents(prev => prev.map(ev => (ev.id === event.id ? { ...ev, start: s, end: e, resourceId: resourceId as string | undefined } : ev)));
     }
   },
   []
@@ -155,7 +168,7 @@ const onEventDrop = useCallback(
           endAccessor={(e) => e.end}
           defaultDate={defaultDate}
           onRangeChange={onRangeChange}
-          eventPropGetter={eventPropGetter as any} // a veces las defs antiguas son estrictas
+          eventPropGetter={eventPropGetter}
           resizable
           onEventResize={onEventResize}
           onEventDrop={onEventDrop}
