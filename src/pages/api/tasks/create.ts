@@ -4,192 +4,210 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import { prisma } from '@/lib/prisma';
 
-type Body = {
-  name?: string;
-  taskTypeId?: string;
-  // variantes de fechas soportadas:
-  date?: string;      // YYYY-MM-DD
-  start?: string;     // HH:mm o ISO con 'T'
-  end?: string;       // HH:mm o ISO con 'T'
-  startTime?: string; // ISO
-  endTime?: string;   // ISO
-  observations?: string | null;
-  workerIds?: string[]; // IDs de Worker
-};
-
-function toISOFromLocal(date: string, hhmm: string) {
-  const [h, m] = (hhmm || '').split(':').map(Number);
-  const [y, mo, d] = (date || '').split('-').map(Number);
-  const dt = new Date(y, (mo || 1) - 1, d || 1, h || 0, m || 0, 0, 0);
-  return dt.toISOString();
+function toDateSafe(v?: string): Date | null {
+  if (!v) return null;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? null : d;
+}
+function startOfDay(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+}
+function endOfDay(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
 }
 
-/** Acepta (date,start,end HH:mm), o (start,end ISO), o (startTime,endTime ISO) */
-function parseStartEnd(body: Body): { start: Date; end: Date } | null {
-  // 1) start/end ISO directos
-  if (body.start && body.end && body.start.includes('T') && body.end.includes('T')) {
-    const s = new Date(body.start); const e = new Date(body.end);
-    if (!isNaN(s.getTime()) && !isNaN(e.getTime())) return { start: s, end: e };
-  }
-  // 2) startTime/endTime ISO
-  if (body.startTime && body.endTime) {
-    const s = new Date(body.startTime); const e = new Date(body.endTime);
-    if (!isNaN(s.getTime()) && !isNaN(e.getTime())) return { start: s, end: e };
-  }
-  // 3) date + start/end HH:mm
-  if (body.date && body.start && body.end && !body.start.includes('T') && !body.end.includes('T')) {
-    const sISO = toISOFromLocal(body.date, body.start);
-    const eISO = toISOFromLocal(body.date, body.end);
-    const s = new Date(sISO); const e = new Date(eISO);
-    if (!isNaN(s.getTime()) && !isNaN(e.getTime())) return { start: s, end: e };
-  }
-  return null;
-}
+/** Conflictos: tareas por hora y leaves aprobadas por DÍA (rango inclusivo) */
+async function getConflictsByDay(workerIds: string[], taskStart: Date, taskEnd: Date) {
+  const dayStart = startOfDay(taskStart);
+  const dayEnd   = endOfDay(taskEnd);
 
-/** true si hay solape (rango abierto) */
-function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
-  return aStart < bEnd && aEnd > bStart;
-}
+  // Tareas solapadas (comparación por hora)
+  const tasks = await prisma.task.findMany({
+    where: {
+      startTime: { lte: taskEnd },
+      endTime:   { gte: taskStart },
+      workers: { some: { id: { in: workerIds } } },
+    },
+    select: {
+      id: true,
+      name: true,
+      startTime: true,
+      endTime: true,
+      taskType: { select: { name: true } },
+      workers: { select: { id: true, username: true } },
+    },
+    orderBy: { startTime: 'asc' },
+  });
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Method not allowed' });
+  // Leaves aprobadas de día completo (comparación por fechas)
+  const leaves = await prisma.leaveRequest.findMany({
+    where: {
+      status: 'aprobado',
+      startDate: { lte: dayEnd },
+      endDate:   { gte: dayStart },
+      workerId:  { in: workerIds },
+    },
+    select: {
+      id: true,
+      type: true,
+      startDate: true,
+      endDate: true,
+      worker: { select: { id: true, username: true } },
+    },
+    orderBy: { startDate: 'asc' },
+  });
 
-  try {
-    const session = await getServerSession(req, res, authOptions);
-    if (!session) return res.status(401).json({ success: false, error: 'No autorizado' });
-
-    const role = (session.user as any)?.role ?? 'empleado';
-    if (!['admin', 'supervisor'].includes(role)) {
-      return res.status(403).json({ success: false, error: 'Acceso denegado' });
-    }
-
-    const body = (req.body || {}) as Body;
-    const { name, taskTypeId, observations, workerIds = [] } = body;
-
-    // Validaciones básicas
-    if (!name || !taskTypeId) {
-      return res.status(400).json({ success: false, error: 'Faltan campos requeridos (name, taskTypeId)' });
-    }
-    if (!Array.isArray(workerIds) || workerIds.length === 0) {
-      return res.status(400).json({ success: false, error: 'Selecciona al menos un trabajador' });
-    }
-
-    const parsed = parseStartEnd(body);
-    if (!parsed) {
-      return res.status(400).json({
-        success: false,
-        error: 'Proporciona (date,start,end) o (start,end) ISO.',
-      });
-    }
-    const { start, end } = parsed;
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-      return res.status(400).json({ success: false, error: 'Fechas inválidas' });
-    }
-    if (!(end > start)) {
-      return res.status(400).json({ success: false, error: 'La fecha de fin debe ser posterior al inicio' });
-    }
-
-    // Verifica TaskType
-    const tt = await prisma.taskType.findUnique({ where: { id: taskTypeId }, select: { id: true } });
-    if (!tt) return res.status(404).json({ success: false, error: 'Tipo de tarea no encontrado' });
-
-    // ---------- DETECCIÓN DE CONFLICTOS ----------
-    // Por cada worker, buscamos tareas y leaves que SOLAPEN el rango propuesto
-    // Solape: start < existing.end AND end > existing.start
-    const conflicts: Array<{
+  const byWorker: Record<
+    string,
+    {
       workerId: string;
       workerName?: string;
       tasks: { id: string; name: string; taskTypeName?: string; startTime: string; endTime: string }[];
       leaves: { id: string; type: string; startDate: string; endDate: string }[];
-    }> = [];
+    }
+  > = {};
 
-    // Cargamos nombres para el informe
-    const workersMap = new Map<string, string>();
-    const workersInfo = await prisma.worker.findMany({
-      where: { id: { in: workerIds } },
-      select: { id: true, username: true },
+  for (const t of tasks) {
+    for (const w of t.workers) {
+      if (!workerIds.includes(w.id)) continue;
+      byWorker[w.id] ||= { workerId: w.id, workerName: w.username, tasks: [], leaves: [] };
+      byWorker[w.id].tasks.push({
+        id: t.id,
+        name: t.name,
+        taskTypeName: t.taskType?.name || undefined,
+        startTime: t.startTime.toISOString(),
+        endTime: t.endTime.toISOString(),
+      });
+    }
+  }
+
+  for (const l of leaves) {
+    const wid = l.worker?.id;
+    if (!wid || !workerIds.includes(wid)) continue;
+    byWorker[wid] ||= { workerId: wid, workerName: l.worker?.username, tasks: [], leaves: [] };
+    byWorker[wid].leaves.push({
+      id: l.id,
+      type: String(l.type),
+      startDate: l.startDate.toISOString(),
+      endDate: l.endDate.toISOString(),
     });
-    for (const w of workersInfo) workersMap.set(w.id, w.username || '');
+  }
 
-    for (const wId of workerIds) {
-      // TAREAS del worker que solapan
-      const overlappingTasks = await prisma.task.findMany({
-        where: {
-          startTime: { lt: end },
-          endTime: { gt: start },
-          workers: { some: { id: wId } }, // M:N
-        },
-        select: {
-          id: true, name: true, startTime: true, endTime: true,
-          taskType: { select: { name: true } },
-        },
-        orderBy: { startTime: 'asc' },
-      });
+  return Object.values(byWorker);
+}
 
-      // LEAVES (aprobadas) del worker que solapan
-      const overlappingLeaves = await prisma.leaveRequest.findMany({
-        where: {
-          workerId: wId,
-          status: 'aprobado',
-          startDate: { lt: end },
-          endDate: { gt: start },
-        },
-        select: { id: true, type: true, startDate: true, endDate: true },
-        orderBy: { startDate: 'asc' },
-      });
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method !== 'POST') return res.status(405).json({ message: 'Method not allowed' });
 
-      if (overlappingTasks.length || overlappingLeaves.length) {
-        conflicts.push({
-          workerId: wId,
-          workerName: workersMap.get(wId) || undefined,
-          tasks: overlappingTasks.map(t => ({
-            id: t.id,
-            name: t.name,
-            taskTypeName: t.taskType?.name || undefined,
-            startTime: t.startTime.toISOString(),
-            endTime: t.endTime.toISOString(),
-          })),
-          leaves: overlappingLeaves.map(l => ({
-            id: l.id,
-            type: l.type,
-            startDate: l.startDate.toISOString(),
-            endDate: l.endDate.toISOString(),
-          })),
-        });
+  const session = await getServerSession(req, res, authOptions);
+  if (!session) return res.status(401).json({ message: 'No autorizado' });
+
+  const role = (session.user as any)?.role ?? 'empleado';
+  if (!['admin', 'supervisor'].includes(role)) {
+    return res.status(403).json({ message: 'Acceso denegado' });
+  }
+
+  try {
+    const body = req.body ?? {};
+
+    const title: string = body.title ?? body.name;
+    const taskTypeId: string = body.taskTypeId;
+    const description: string | undefined = body.description ?? body.observations;
+
+    // Formato 1: date + start + end (HH:mm)
+    const dateStr: string | undefined  = body.date;
+    const startStr: string | undefined = body.start;
+    const endStr: string | undefined   = body.end;
+
+    // Formato 2: startISO + endISO (ISO completos)
+    const startISO: string | undefined = body.startISO;
+    const endISO: string | undefined   = body.endISO;
+
+    const workerIds: string[] = Array.isArray(body.workerIds) ? body.workerIds : [];
+    const force: boolean = body?.force === true || body?.force === 'true';
+
+    // Validaciones básicas
+    if (!title)      return res.status(400).json({ message: 'Falta título' });
+    if (!taskTypeId) return res.status(400).json({ message: 'Falta taskTypeId' });
+    if (!Array.isArray(workerIds) || workerIds.length === 0) {
+      return res.status(400).json({ message: 'Debes seleccionar al menos un trabajador' });
+    }
+
+    // Construir fechas según formato recibido
+    let finalStart: Date | null = null;
+    let finalEnd: Date | null   = null;
+
+    if (dateStr && startStr && endStr) {
+      // date + HH:mm
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        return res.status(400).json({ message: 'date debe ser YYYY-MM-DD' });
+      }
+      if (!/^\d{2}:\d{2}$/.test(startStr) || !/^\d{2}:\d{2}$/.test(endStr)) {
+        return res.status(400).json({ message: 'start/end deben ser HH:mm' });
+      }
+      finalStart = new Date(`${dateStr}T${startStr}:00`);
+      finalEnd   = new Date(`${dateStr}T${endStr}:00`);
+    } else if (startISO && endISO) {
+      // ISO completos
+      const s = toDateSafe(startISO);
+      const e = toDateSafe(endISO);
+      if (!s || !e) return res.status(400).json({ message: 'Proporciona startISO y endISO válidos' });
+      finalStart = s;
+      finalEnd   = e;
+    } else {
+      // ni (date+HH:mm) ni (ISO)
+      return res.status(400).json({ message: 'Proporciona (date,start,end) o (startISO,endISO)' });
+    }
+
+    if (!finalStart || !finalEnd || isNaN(finalStart.getTime()) || isNaN(finalEnd.getTime())) {
+      return res.status(400).json({ message: 'Fechas inválidas' });
+    }
+    if (finalStart >= finalEnd) {
+      return res.status(400).json({ message: 'El fin debe ser posterior al inicio' });
+    }
+
+    // Conflictos (si no se fuerza)
+    if (!force) {
+      const conflicts = await getConflictsByDay(workerIds, finalStart, finalEnd);
+      const hasConflicts = conflicts.some(c => c.tasks.length > 0 || c.leaves.length > 0);
+      if (hasConflicts) {
+        return res.status(409).json({ success: false, error: 'Conflictos de agenda', conflicts });
       }
     }
 
-    if (conflicts.length > 0) {
-      return res.status(409).json({
-        success: false,
-        error: 'Conflictos de agenda detectados',
-        conflicts,
-      });
-    }
-    // ---------- FIN CONFLICTOS ----------
-
-    // Crear tarea
+    // Crear
     const created = await prisma.task.create({
       data: {
-        name,
-        taskTypeId,
-        startTime: start,
-        endTime: end,
-        observations: observations ?? null,
-        workers: { connect: workerIds.map(id => ({ id })) }, // M:N
+        name: title,
+        observations: description ?? null,
+        taskType: { connect: { id: taskTypeId } },
+        startTime: finalStart,
+        endTime: finalEnd,
+        workers: { connect: workerIds.map(id => ({ id })) },
       },
       include: {
-        taskType: { select: { id: true, name: true, color: true } },
         workers: { select: { id: true, username: true } },
+        taskType: { select: { id: true, name: true, color: true } },
       },
     });
 
-    return res.status(201).json({ success: true, task: created });
-  } catch (err: any) {
-    console.error('ERROR /api/tasks/create:', err);
-    if (err?.code === 'P2025') {
-      return res.status(400).json({ success: false, error: 'Alguno de los IDs proporcionados no existe' });
-    }
-    return res.status(500).json({ success: false, error: err?.message || 'Error interno' });
+    return res.status(201).json({
+      success: true,
+      task: {
+        id: created.id,
+        title: created.name,
+        description: created.observations,
+        start: created.startTime,
+        end: created.endTime,
+        taskTypeId: created.taskTypeId,
+        taskTypeName: created.taskType?.name,
+        taskTypeColor: created.taskType?.color,
+        workers: created.workers,
+        workerIds: created.workers.map(w => w.id),
+      },
+    });
+  } catch (e: any) {
+    console.error('POST /api/tasks/create', e);
+    return res.status(500).json({ message: 'Error interno', detail: e?.message });
   }
 }

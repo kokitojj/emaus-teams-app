@@ -1,25 +1,25 @@
-// src/pages/api/tasks/[id].ts
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import { prisma } from '@/lib/prisma';
 
-function toDateSafe(v?: string): Date | null {
-  if (!v) return null;
-  const d = new Date(v);
-  return isNaN(d.getTime()) ? null : d;
+function startOfDay(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+}
+function endOfDay(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
 }
 
-/** Devuelve conflictos de agenda (otras tareas + leaves aprobadas) para workerIds en [start,end] de forma inclusiva */
-async function getConflicts(params: {
+async function getConflictsEditByDay(params: {
   taskId: string;
   workerIds: string[];
   start: Date;
   end: Date;
 }) {
   const { taskId, workerIds, start, end } = params;
+  const dayStart = startOfDay(start);
+  const dayEnd = endOfDay(end);
 
-  // TAREAS que se solapan (EXCLUYE la propia) — comparaciones inclusivas
   const tasks = await prisma.task.findMany({
     where: {
       id: { not: taskId },
@@ -38,12 +38,11 @@ async function getConflicts(params: {
     orderBy: { startTime: 'asc' },
   });
 
-  // LEAVES aprobadas que se solapan — inclusivo
   const leaves = await prisma.leaveRequest.findMany({
     where: {
       status: 'aprobado',
-      startDate: { lte: end },
-      endDate: { gte: start },
+      startDate: { lte: dayEnd },
+      endDate: { gte: dayStart },
       workerId: { in: workerIds },
     },
     select: {
@@ -56,15 +55,12 @@ async function getConflicts(params: {
     orderBy: { startDate: 'asc' },
   });
 
-  const byWorker: Record<
-    string,
-    {
-      workerId: string;
-      workerName?: string;
-      tasks: { id: string; name: string; taskTypeName?: string; startTime: string; endTime: string }[];
-      leaves: { id: string; type: string; startDate: string; endDate: string }[];
-    }
-  > = {};
+  const byWorker: Record<string, {
+    workerId: string;
+    workerName?: string;
+    tasks: { id: string; name: string; taskTypeName?: string; startTime: string; endTime: string }[];
+    leaves: { id: string; type: string; startDate: string; endDate: string }[];
+  }> = {};
 
   for (const t of tasks) {
     for (const w of t.workers) {
@@ -149,30 +145,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
       if (!current) return res.status(404).json({ message: 'Tarea no encontrada' });
 
-      const body = req.body ?? {};
-      const title: string | undefined = body.title ?? body.name;
-      const description: string | undefined = body.description ?? body.observations;
-      const taskTypeId: string | undefined = body.taskTypeId;
-      const dateStr: string | undefined = body.date;   // YYYY-MM-DD
-      const startStr: string | undefined = body.start; // HH:mm o ISO
-      const endStr: string | undefined = body.end;     // HH:mm o ISO
-      const workerIdsBody: string[] | undefined = body.workerIds;
+      const { title, description, taskTypeId, date, start, end, workerIds, force } = req.body;
 
-      // Parseo ESTRICTO de force (evita que "false" cuente como true)
-      const force: boolean = body?.force === true || body?.force === 'true';
-
-      // Fechas
       let finalStart: Date = current.startTime;
       let finalEnd: Date = current.endTime;
 
-      if (dateStr && startStr && endStr && /^\d{2}:\d{2}$/.test(startStr) && /^\d{2}:\d{2}$/.test(endStr)) {
-        finalStart = new Date(`${dateStr}T${startStr}:00`);
-        finalEnd = new Date(`${dateStr}T${endStr}:00`);
-      } else {
-        const sISO = toDateSafe(startStr);
-        const eISO = toDateSafe(endStr);
-        if (sISO) finalStart = sISO;
-        if (eISO) finalEnd = eISO;
+      if (date && start && end && /^\d{2}:\d{2}$/.test(start) && /^\d{2}:\d{2}$/.test(end)) {
+        finalStart = new Date(`${date}T${start}:00`);
+        finalEnd = new Date(`${date}T${end}:00`);
       }
 
       if (isNaN(finalStart.getTime()) || isNaN(finalEnd.getTime())) {
@@ -182,24 +162,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ message: 'El fin debe ser posterior al inicio' });
       }
 
-      const finalWorkerIds =
-        Array.isArray(workerIdsBody) && workerIdsBody.length > 0
-          ? workerIdsBody
-          : current.workers.map(w => w.id);
+      const finalWorkerIds = Array.isArray(workerIds) && workerIds.length > 0 ? workerIds : current.workers.map(w => w.id);
 
-      if (!force && finalWorkerIds.length === 0) {
-        return res.status(400).json({ message: 'Debe haber al menos un trabajador asignado para validar conflictos' });
-      }
-
-      // CONFLICTOS (inclusivo)
       if (!force && finalWorkerIds.length > 0) {
-        const conflicts = await getConflicts({
+        const conflicts = await getConflictsEditByDay({
           taskId: id,
           workerIds: finalWorkerIds,
           start: finalStart,
           end: finalEnd,
         });
-
         const hasConflicts = conflicts.some(c => c.tasks.length > 0 || c.leaves.length > 0);
         if (hasConflicts) {
           return res.status(409).json({ success: false, error: 'Conflictos de agenda', conflicts });
@@ -225,22 +196,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         },
       });
 
-      return res.status(200).json({
-        success: true,
-        task: {
-          id: updated.id,
-          title: updated.name,
-          description: updated.observations,
-          start: updated.startTime,
-          end: updated.endTime,
-          taskTypeId: updated.taskTypeId,
-          taskTypeName: updated.taskType?.name,
-          taskTypeColor: updated.taskType?.color,
-          isCompleted: !!updated.isCompleted,
-          workers: updated.workers,
-          workerIds: updated.workers.map(w => w.id),
-        },
-      });
+      return res.status(200).json({ success: true, task: updated });
     } catch (e: any) {
       console.error('PATCH /api/tasks/[id]', e);
       return res.status(500).json({ message: 'Error interno', detail: e?.message });
