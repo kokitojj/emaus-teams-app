@@ -135,6 +135,56 @@ function expandEventByDay(ev: CalendarEvent, weekStart: Date, weekEnd: Date): Ca
   return days;
 }
 
+/** Calcula columnas internas para eventos solapados (por día). */
+function layoutOverlaps(dayEvents: CalendarEvent[]) {
+  type Positioned = CalendarEvent & { _col: number; _cols: number };
+  // Orden por inicio asc, fin asc
+  const evs = [...dayEvents].sort(
+    (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()
+      || new Date(a.end).getTime() - new Date(b.end).getTime()
+  );
+
+  const active: Positioned[] = [];
+  const out: Positioned[] = [];
+
+  const freeCols: number[] = []; // pila de columnas libres (reutilizar huecos)
+
+  for (const ev of evs) {
+    const s = new Date(ev.start).getTime();
+    // limpia activos finalizados antes del inicio de ev
+    for (let i = active.length - 1; i >= 0; i--) {
+      const a = active[i];
+      if (new Date(a.end).getTime() <= s) {
+        freeCols.push(a._col);
+        active.splice(i, 1);
+      }
+    }
+
+    // asigna columna
+    let col: number;
+    if (freeCols.length > 0) {
+      col = freeCols.pop() as number;
+    } else {
+      col = active.length; // siguiente columna
+    }
+
+    const positioned: Positioned = { ...ev, _col: col, _cols: 1 };
+    active.push(positioned);
+    out.push(positioned);
+
+    // recalcula _cols (ancho total) = nº máximo de simultáneos
+    const maxSimult = active.length;
+    for (const a of active) a._cols = Math.max(a._cols, maxSimult);
+  }
+
+  // devuelve ancho y left en porcentaje
+  return out.map(p => {
+    const width = 100 / p._cols;
+    const left = p._col * width;
+    return { ...p, _leftPct: left, _widthPct: width };
+  }) as Array<CalendarEvent & { _leftPct: number; _widthPct: number }>;
+}
+
 export default function WeeklyCalendar({
   defaultWorkerId = '',
   lockToWorker = false,
@@ -142,7 +192,8 @@ export default function WeeklyCalendar({
 }: WeeklyCalendarProps) {
   // Estado
   const [workerId, setWorkerId] = useState<string>(() => (lockToWorker ? defaultWorkerId : ''));
-  const [taskTypeId, setTaskTypeId] = useState<string>(''); // filtro
+  const [taskTypeId, setTaskTypeId] = useState<string>(''); // filtro por tipo
+  const [showWeekends, setShowWeekends] = useState<boolean>(true); // ⬅️ toggle fines de semana
   const [currentMonday, setCurrentMonday] = useState(() => startOfWeek(new Date()));
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [workers, setWorkers] = useState<Worker[]>([]);
@@ -158,13 +209,19 @@ export default function WeeklyCalendar({
     }
   }, [defaultWorkerId, lockToWorker, workerId]);
 
-  const weekDays = useMemo(() => (
+  const fullWeekDays = useMemo(() => (
     Array.from({ length: 7 }).map((_, i) => {
       const d = new Date(currentMonday);
       d.setDate(currentMonday.getDate() + i);
       return d;
     })
   ), [currentMonday]);
+
+  const weekDays = useMemo(() => {
+    if (showWeekends) return fullWeekDays;
+    // oculta sábado(6) y domingo(0)
+    return fullWeekDays.filter(d => !isWeekend(d));
+  }, [fullWeekDays, showWeekends]);
 
   const weekStartISO = useMemo(() => {
     const d = new Date(currentMonday);
@@ -266,8 +323,11 @@ export default function WeeklyCalendar({
     []
   );
 
-  const fmtDay = (d: Date) =>
-    new Intl.DateTimeFormat('es-ES', { weekday: 'short', day: '2-digit', month: '2-digit' }).format(d);
+  const fmtDayShort = (d: Date) =>
+    new Intl.DateTimeFormat('es-ES', { weekday: 'short' }).format(d);
+
+  const fmtDayFull = (d: Date) =>
+    new Intl.DateTimeFormat('es-ES', { day: '2-digit', month: '2-digit' }).format(d);
 
   // Particionar por día y por tipo (allDay vs timed)
   const ofDay = (day: Date) => {
@@ -293,26 +353,20 @@ export default function WeeklyCalendar({
   // Línea “now” (solo cuando hoy está dentro de la vista semanal)
   useEffect(() => {
     const today = new Date();
-    const isInRange =
+    const inRange =
       new Date(weekStartISO) <= today &&
       today <= new Date(new Date(weekEndISO).toISOString().slice(0,10) + 'T23:59:59');
 
-    if (!isInRange) {
+    if (!inRange) {
       setNowY(null);
       return;
     }
-    const tick = () => {
-      const h = today.getHours();
-      const m = today.getMinutes();
-      const y = topPxFromDate(new Date(2000, 0, 1, h, m, 0)); // solo para calcular
+    const update = () => {
+      const y = topPxFromDate(new Date());
       setNowY(y);
     };
-    tick();
-    const id = setInterval(() => {
-      const t = new Date();
-      const y = topPxFromDate(t);
-      setNowY(y);
-    }, 60000);
+    update();
+    const id = setInterval(update, 60000);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weekStartISO, weekEndISO]);
@@ -326,7 +380,6 @@ export default function WeeklyCalendar({
 
   return (
     <div className="w-full">
-      {/* Wrapper como tarjeta */}
       <div className="rounded-2xl border bg-white shadow-sm ring-1 ring-black/5 overflow-hidden">
         {/* Controles */}
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between p-4 border-b bg-gradient-to-b from-white to-gray-50">
@@ -352,9 +405,16 @@ export default function WeeklyCalendar({
             >
               ▶
             </button>
-            <div className="ml-2 text-sm text-gray-600">
-              Semana del <span className="font-semibold">{fmtDay(weekDays[0])}</span> al <span className="font-semibold">{fmtDay(weekDays[6])}</span>
-            </div>
+
+            <label className="ml-3 inline-flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="rounded border-gray-300"
+                checked={showWeekends}
+                onChange={e => e.target.checked ? setShowWeekends(true) : setShowWeekends(false)}
+              />
+              Mostrar fines de semana
+            </label>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
@@ -392,12 +452,38 @@ export default function WeeklyCalendar({
           </div>
         </div>
 
+        {/* Cabecera por columna (día de la semana + fecha) */}
+        <div
+          className="grid border-b"
+          style={{ gridTemplateColumns: '64px repeat(' + weekDays.length + ', 1fr)' }}
+        >
+          <div className="bg-gray-50 p-2 text-xs font-medium text-gray-500 flex items-center justify-center">
+            {/* hueco para la columna de horas */}
+            &nbsp;
+          </div>
+          {weekDays.map((d, idx) => {
+            const today = isToday(d);
+            return (
+              <div
+                key={idx}
+                className={
+                  'p-2 text-center text-sm font-semibold ' +
+                  (today ? 'bg-blue-50 text-blue-700' : 'bg-gray-50 text-gray-700')
+                }
+              >
+                <div className="uppercase tracking-wide">{fmtDayShort(d)}</div>
+                <div className="text-xs font-normal">{fmtDayFull(d)}</div>
+              </div>
+            );
+          })}
+        </div>
+
         {/* ===== Fila “Todo el día” (ausencias y eventos allDay) ===== */}
         <div
           className="grid"
-          style={{ gridTemplateColumns: '64px repeat(7, 1fr)' }}
+          style={{ gridTemplateColumns: '64px repeat(' + weekDays.length + ', 1fr)' }}
         >
-          <div className="bg-gray-50 border-t border-b p-2 text-xs font-medium text-gray-500 flex items-center justify-center">
+          <div className="bg-gray-50 border-b p-2 text-xs font-medium text-gray-500 flex items-center justify-center">
             Todo el día
           </div>
           {weekDays.map((d, idx) => {
@@ -407,7 +493,7 @@ export default function WeeklyCalendar({
               <div
                 key={idx}
                 className={
-                  'border-l border-t border-b p-2 flex flex-col gap-2 min-h-[44px] ' +
+                  'border-l border-b p-2 flex flex-col gap-2 min-h-[44px] ' +
                   (dayIsToday ? 'bg-blue-50/40' : 'bg-white')
                 }
               >
@@ -439,8 +525,8 @@ export default function WeeklyCalendar({
 
         {/* ===== Grid horario 07:00–19:00 ===== */}
         <div
-          className="grid border-t"
-          style={{ gridTemplateColumns: '64px repeat(7, 1fr)' }}
+          className="grid"
+          style={{ gridTemplateColumns: '64px repeat(' + weekDays.length + ', 1fr)' }}
         >
           {/* Gutter horas */}
           <div className="relative border-r bg-white" style={{ height: TOTAL_HEIGHT, minHeight: TOTAL_HEIGHT }}>
@@ -455,11 +541,14 @@ export default function WeeklyCalendar({
             ))}
           </div>
 
-          {/* Columnas por día */}
+          {/* Columnas por día con eventos con hora (con compactación de solapes) */}
           {weekDays.map((day, idx) => {
             const { timed } = ofDay(day);
             const dayIsToday = isToday(day);
             const weekend = isWeekend(day);
+
+            // calcula layout de solapes por día
+            const positioned = layoutOverlaps(timed);
 
             return (
               <div
@@ -480,8 +569,8 @@ export default function WeeklyCalendar({
                   <div className="absolute inset-0 bg-blue-50/40 pointer-events-none" />
                 )}
 
-                {/* eventos con hora */}
-                {timed.map(ev => {
+                {/* eventos con hora (posicionados con left/width %) */}
+                {positioned.map(ev => {
                   const s = new Date(ev.start);
                   const e = new Date(ev.end);
                   const col = ev.color || '#3b82f6';
@@ -491,8 +580,15 @@ export default function WeeklyCalendar({
                   return (
                     <div
                       key={ev.id}
-                      className="absolute left-1 right-1 rounded-xl border bg-white shadow-sm p-2 text-xs pointer-events-auto hover:shadow-md transition"
-                      style={{ top, height, borderColor: col, backgroundColor: bg }}
+                      className="absolute rounded-xl border bg-white shadow-sm p-2 text-xs pointer-events-auto hover:shadow-md transition"
+                      style={{
+                        top,
+                        height,
+                        left: `${ev._leftPct + 0.5}%`,
+                        width: `${ev._widthPct - 1}%`,
+                        borderColor: col,
+                        backgroundColor: bg
+                      }}
                       title={ev.title}
                     >
                       <div className="font-semibold truncate">{ev.title}</div>
@@ -505,10 +601,7 @@ export default function WeeklyCalendar({
 
                 {/* Línea de hora actual en la columna de hoy */}
                 {dayIsToday && nowY !== null && nowY >= 0 && nowY <= TOTAL_HEIGHT && (
-                  <div
-                    className="absolute left-0 right-0"
-                    style={{ top: nowY }}
-                  >
+                  <div className="absolute left-0 right-0" style={{ top: nowY }}>
                     <div className="h-[2px] w-full bg-blue-500/80" />
                     <div className="absolute -top-2 right-2 text-[10px] text-blue-700 bg-white/80 rounded px-1 shadow">
                       Ahora
